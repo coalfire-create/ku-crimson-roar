@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CRIMSON ROAR — 고려대학교</title>
+    <meta name="description" content="자유·정의·진리, 불멸의 포효. 잠든 호랑이를 깨우고 안암의 요새로 들어서는 고려대학교 인터랙티브 3D." />
+    <meta name="theme-color" content="#0d0d11" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Noto+Serif+KR:wght@900&family=Cinzel:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  </head>
+  <body>
+    <div class="loader" id="loader">
+      <span class="loader__glyph">高麗</span>
+      <div class="loader__foot">
+        <span>KOREA UNIVERSITY</span>
+        <span id="loaderNum">0</span>
+      </div>
+      <div class="loader__bar"><span id="loaderBar"></span></div>
+    </div>
+
+    <div class="progress-line" id="progressLine"></div>
+    <header class="nav">
+      <a href="#hero" class="nav__logo" aria-label="고려대학교">Korea<sup>高麗</sup></a>
+      <nav class="nav__links">
+        <a href="#fortress">본관</a>
+        <a href="#pride">입실렌티</a>
+        <a href="#frontier">캠퍼스</a>
+        <a href="#gate">입학</a>
+      </nav>
+      <div class="nav__right">
+        <button type="button" class="vs-btn" id="vsBtn" aria-label="VS 모드">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 3C11 4 5 10 4 20l2 1c1-3 3-6 5-8-1 3-1 5 0 7 5-2 8-7 9-17z" /></svg>
+        </button>
+        <a href="https://oku.korea.ac.kr" target="_blank" rel="noopener" class="nav__cta">입학 안내 ↗</a>
+      </div>
+    </header>
+
+    <main>
+      <!-- 01 HERO: the tiger wakes -->
+      <section class="scene hero" id="hero">
+        <div class="scene__sticky">
+          <canvas class="scene__canvas" id="cvHero"></canvas>
+          <canvas class="scene__canvas roar-sparks" id="cvSparks" aria-hidden="true"></canvas>
+          <div class="hero__top">
+            <span class="eyebrow">KOREA UNIVERSITY · SINCE 1905</span>
+            <span class="eyebrow">ANAM — SEOUL</span>
+          </div>
+          <div class="hero__body">
+            <p class="hero__kicker reveal-hero">자유, 정의, 진리.</p>
+            <h1 class="hero__word"><span class="split">Korea</span></h1>
+            <div class="hero__row reveal-hero">
+              <p class="hero__desc">1905년 보성전문학교에서 시작된 120여 년.<br />잠든 호랑이를 깨워 보세요.</p>
+              <div class="hero__cta">
+                <button type="button" class="pill pill--light" id="roarBtn">포효하기 ROAR</button>
+                <a href="#fortress" class="pill">Scroll ↓</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 02 THE FORTRESS OF INTELLECT: 본관 exploded -->
+      <section class="scene fortress" id="fortress">
+        <div class="scene__sticky">
+          <canvas class="scene__canvas" id="cvFortress"></canvas>
+          <div class="fortress__head">
+            <span class="kicker">01 — THE FORTRESS OF INTELLECT</span>
+            <h2 class="h2">지성의 요새,<br />본관.</h2>
+            <p class="body">1934년 안암 언덕에 세워진 화강암 고딕 건물. 스크롤하면 요새가 부품으로 흩어졌다가 다시 하나가 됩니다.</p>
+          </div>
+          <ol class="timeline" id="timeline"></ol>
+          <div class="part-tag" id="partTag" hidden><b></b><span></span><p></p></div>
+          <p class="hint hint--fortress"><span class="hint__dot"></span>흩어진 부품에 커서를 올려 보세요</p>
+        </div>
+      </section>
+
+      <!-- 03 THE CRIMSON PRIDE: IPSELENTI -->
+      <section class="scene pride" id="pride">
+        <div class="scene__sticky">
+          <canvas class="scene__canvas" id="cvAurora"></canvas>
+          <canvas class="scene__canvas scene__canvas--tap" id="cvHeart"></canvas>
+          <div class="pride__copy">
+            <span class="kicker">02 — THE CRIMSON PRIDE</span>
+            <h2 class="h2">붉은 함성,<br />입실렌티.</h2>
+            <p class="hint"><span class="hint__dot"></span><span id="prideHint">스페이스바나 클릭으로 심장을 뛰게 하세요</span></p>
+          </div>
+          <div class="meter">
+            <span class="meter__label">CROWD ENERGY</span>
+            <div class="meter__bar"><span id="meterFill"></span></div>
+            <span class="meter__beats"><b id="beatCount">0</b> BEATS</span>
+          </div>
+          <div class="ipselenti" id="ipselenti" aria-hidden="true">IPSELENTI</div>
+          <button class="mute" id="mute" type="button"><i></i>SOUND ON</button>
+        </div>
+      </section>
+
+      <!-- 04 KU FUTURE FRONTIER: the Anam campus, following the tiger -->
+      <section class="scene flight" id="frontier">
+        <div class="scene__sticky">
+          <canvas class="scene__canvas" id="cvFlight"></canvas>
+          <canvas class="scene__canvas speed-lines" id="speedLines" aria-hidden="true"></canvas>
+          <div class="locks" id="locks"></div>
+          <div class="flight__head">
+            <span class="kicker">03 — KU FUTURE FRONTIER · 호랑이길</span>
+            <h2 class="h2">정문에서 자연계까지,<br />호랑이의 발자국을 따라.</h2>
+          </div>
+          <div class="flight__hud">
+            <div><span class="hud__label">SPEED</span><span class="hud__big" id="speed">0</span><span class="hud__unit">km/h</span></div>
+            <div><span class="hud__label">TARGET</span><span class="hud__mid" id="lockName">—</span></div>
+          </div>
+          <p class="hint hint--flight"><span class="hint__dot"></span>화면에 커서를 올리면 가속 · 타겟을 클릭해 보세요</p>
+          <button class="dir-btn" id="dirBtn" type="button">건물 전체 보기 <b id="dirCount"></b></button>
+          <button class="dir-back" id="dirBack" type="button" hidden>← 투어로 돌아가기</button>
+          <aside class="dir" id="dir" hidden>
+            <div class="dir__head">
+              <b>고려대학교 안암캠퍼스</b>
+              <button class="dir__close" id="dirClose" type="button" aria-label="닫기">×</button>
+            </div>
+            <input class="dir__search" id="dirSearch" type="search" placeholder="건물 이름 검색" autocomplete="off" />
+            <ul class="dir__list" id="dirList"></ul>
+            <p class="dir__note">건물 위치·윤곽: © OpenStreetMap contributors · 지형: AWS Terrain Tiles</p>
+          </aside>
+          <div class="card" id="card" hidden>
+            <button class="card__close" id="cardClose" aria-label="닫기">×</button>
+            <span class="card__code" id="cardCode"></span>
+            <h3 class="card__name" id="cardName"></h3>
+            <span class="card__en" id="cardEn"></span>
+            <p class="card__body" id="cardBody"></p>
+            <dl class="card__rows" id="cardRows"></dl>
+            <ul class="card__facts" id="cardFacts"></ul>
+            <div class="card__near" id="cardNear"></div>
+            <div class="card__actions">
+              <button class="card__go" id="cardGo" type="button">가까이 날아가 보기</button>
+              <a class="card__map" id="cardMap" target="_blank" rel="noopener">지도 ↗</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 05 ENTER THE ANAM: the stone gate opens -->
+      <section class="scene gate" id="gate">
+        <div class="scene__sticky">
+          <canvas class="scene__canvas" id="cvDawn"></canvas>
+          <canvas class="scene__canvas" id="cvGate"></canvas>
+          <div class="gate__top">
+            <span class="eyebrow">04 — ENTER THE ANAM</span>
+            <span class="eyebrow">KOREA UNIVERSITY</span>
+          </div>
+          <div class="gate__body">
+            <h2 class="gate__title">Enter<br /><em>the Anam.</em></h2>
+            <div class="gate__row">
+              <p class="gate__ko">자유, 정의, 진리.<br />이제 당신의 포효가 시작될 차례입니다.</p>
+              <div class="gate__actions">
+                <a class="pill pill--crimson" href="https://oku.korea.ac.kr" target="_blank" rel="noopener">입학 안내 ↗</a>
+                <button type="button" class="pill pill--inkline" id="carveBtn">나의 포효 각인 만들기</button>
+                <a class="pill pill--inkline" href="#hero">처음으로 ↑</a>
+              </div>
+            </div>
+          </div>
+          <footer class="footer">
+            <span>고려대학교 · 서울 성북구 안암로 145</span>
+            <span>캠퍼스 3D: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · AWS Terrain Tiles</span>
+          </footer>
+        </div>
+      </section>
+    </main>
+
+    <!-- The Roar Carving -->
+    <div class="carve" id="carve" hidden>
+      <div class="carve__stage"><canvas id="carveCv"></canvas></div>
+      <div class="carve__side">
+        <span class="kicker">THE ROAR CARVING</span>
+        <h3>화강암에 당신의<br />이름을 새기세요.</h3>
+        <p>이름을 입력하거나, 돌판 위를 드래그해 직접 새겨 보세요.</p>
+        <input id="carveName" type="text" maxlength="12" placeholder="이름 또는 응원 문구" autocomplete="off" />
+        <div class="carve__actions">
+          <a class="pill pill--crimson" id="carveSave" download="ku-roar-carving.png" href="#">이미지 저장</a>
+          <button class="pill" id="carveClear" type="button">지우기</button>
+          <button class="pill" id="carveClose" type="button">닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- VS mode -->
+    <div class="vs" id="vs" hidden>
+      <div class="vs__half vs__half--ku"><span>TIGER</span></div>
+      <div class="vs__half vs__half--ys"><span>EAGLE</span></div>
+      <div class="vs__mark">VS</div>
+      <div class="vs__actions">
+        <a class="pill pill--light" href="https://yonsei-blue-flight.vercel.app" target="_blank" rel="noopener">연세 사이트로 ↗</a>
+        <button class="pill" id="vsClose" type="button">돌아가기</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
