@@ -2,7 +2,8 @@ import './style.css'
 import gsap from 'gsap'
 import Lenis from 'lenis'
 import { ShaderCanvas } from './shader-canvas.js'
-import { TIGER, AURORA, DAWN } from './scenes/shaders.js'
+import { AURORA, DAWN } from './scenes/shaders.js'
+import { Tiger } from './scenes/tiger.js'
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
 const ease = (t) => t * t * (3 - 2 * t)
@@ -100,78 +101,40 @@ async function boot() {
   addEventListener('resize', () => innerWidth !== viewW && ((viewW = innerWidth), (viewH = innerHeight)))
   const touch = matchMedia('(hover: none)').matches
 
-  /* Opening: the tiger in the dark. */
+  /* Opening: the tiger, in embers. */
   const heroEl = document.getElementById('hero')
   const heroSticky = heroEl.querySelector('.scene__sticky')
-  const eyes = () => (innerWidth / viewH < 0.8 ? [0.5, 0.66] : [0.7, 0.6])
-  const hero = new ShaderCanvas(document.getElementById('cvHero'), TIGER, {
-    maxDpr: 1.5,
-    idleMouse: (t) => [0.55 + 0.25 * Math.sin(t * 0.21), 0.55 + 0.15 * Math.sin(t * 0.33 + 1)],
-    uniforms: { uOpen: 0, uBlink: 0, uBlast: 0, uEyes: eyes() },
-  })
-  addEventListener('resize', () => hero.set('uEyes', eyes()))
-  const eyeState = { open: 0 }
+  const hero = new Tiger(document.getElementById('cvHero'))
+  if (import.meta.env.DEV) window.__tiger = hero
+  const eyeState = { open: 0, intro: 0 }
   let blinkAt = 3
   let blastT = -1
-
-  // Roar sparks: embers thrown out of the eyes.
-  const sparkCv = document.getElementById('cvSparks')
-  const sparkCtx = sparkCv.getContext('2d')
-  let sparks = []
   const roar = () => {
     blastT = 0
+    hero.roar()
     try {
       roarSound()
     } catch {}
-    const [ex, ey] = eyes()
-    const cx = ex * sparkCv.clientWidth
-    const cy = (1 - ey) * sparkCv.clientHeight
-    for (let i = 0; i < 260; i++) {
-      const a = Math.random() * Math.PI * 2
-      const s = 200 + Math.random() * 900
-      sparks.push({ x: cx + (Math.random() - 0.5) * 200, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.7, life: 1, r: 1 + Math.random() * 3 })
-    }
   }
-  heroEl.addEventListener('pointerdown', (e) => {
+  // A click roars; a drag only turns the face.
+  heroEl.addEventListener('click', (e) => {
     if (e.target.closest('a')) return
     if (e.target.closest('button') && e.target.id !== 'roarBtn') return
+    if (e.target.id !== 'roarBtn' && hero.dragged) return
     roar()
   })
-  const drawSparks = (dt) => {
-    const w = sparkCv.clientWidth
-    const h = sparkCv.clientHeight
-    if (sparkCv.width !== w || sparkCv.height !== h) ((sparkCv.width = w), (sparkCv.height = h))
-    sparkCtx.clearRect(0, 0, w, h)
-    if (!sparks.length) return
-    sparkCtx.globalCompositeOperation = 'lighter'
-    for (const s of sparks) {
-      s.vy += 260 * dt
-      s.vx *= 1 - dt * 1.2
-      s.vy *= 1 - dt * 1.2
-      s.x += s.vx * dt
-      s.y += s.vy * dt
-      s.life -= dt * 0.8
-      sparkCtx.fillStyle = `rgba(255, ${Math.round(80 + 140 * s.life)}, 40, ${Math.max(0, s.life)})`
-      sparkCtx.beginPath()
-      sparkCtx.arc(s.x, s.y, s.r * (0.5 + s.life), 0, Math.PI * 2)
-      sparkCtx.fill()
-    }
-    sparkCtx.globalCompositeOperation = 'source-over'
-    sparks = sparks.filter((s) => s.life > 0)
-  }
 
   const heroBody = document.querySelector('.hero__body')
   const heroWord = document.querySelector('.hero__word')
   let time = 0
   const heroView = {
     render(dt) {
-      hero.render(time, dt)
-      drawSparks(dt)
+      hero.render(dt)
     },
   }
   const heroTick = (dt) => {
     const hp = clamp01(-heroEl.getBoundingClientRect().top / Math.max(1, heroEl.offsetHeight - viewH * 2))
-    hero.set('uProgress', hp)
+    hero.progress = hp
     heroBody.style.transform = `translateY(${hp * -18}vh)`
     heroBody.style.opacity = (1 - clamp01((hp - 0.6) / 0.4)).toFixed(3)
     heroWord.style.transform = `scale(${1 + hp * 0.08})`
@@ -180,15 +143,15 @@ async function boot() {
     let blink = 0
     if (blinkAt < 0.16) blink = Math.sin(clamp01(1 - blinkAt / 0.16) * Math.PI)
     if (blinkAt < 0) blinkAt = 2.5 + Math.random() * 4
-    hero.set('uBlink', blink)
-    hero.set('uOpen', eyeState.open)
+    hero.blink = blink
+    hero.open = eyeState.open
+    hero.intro = eyeState.intro
     // The roar: shockwave, shake.
     if (blastT >= 0) {
       blastT += dt
-      hero.set('uBlast', clamp01(blastT / 1.2))
       const s = Math.max(0, 1 - blastT / 0.6)
       heroSticky.style.translate = s > 0 ? `${((Math.random() - 0.5) * 14 * s).toFixed(1)}px ${((Math.random() - 0.5) * 14 * s).toFixed(1)}px` : ''
-      if (blastT > 1.2) ((blastT = -1), hero.set('uBlast', 0))
+      if (blastT > 1.2) blastT = -1
     }
   }
 
@@ -225,8 +188,9 @@ async function boot() {
     gsap
       .timeline({ onComplete: done })
       .to('#loader', { clipPath: 'inset(0 0 100% 0)', duration: 1.2, ease: 'expo.inOut' })
-      .to(eyeState, { open: 1, duration: 1.6, ease: 'power2.out' }, '-=0.3')
-      .from('.hero .char', { yPercent: 110, opacity: 0, stagger: 0.07, duration: 1.4, ease: 'expo.out' }, '-=1.6')
+      .to(eyeState, { intro: 1, duration: 3.2, ease: 'power2.out' }, '-=0.6')
+      .to(eyeState, { open: 1, duration: 1.2, ease: 'power2.out' }, '-=1.0')
+      .from('.hero .char', { yPercent: 110, opacity: 0, stagger: 0.07, duration: 1.4, ease: 'expo.out' }, '-=2.6')
       .from('.nav, .hero .eyebrow, .reveal-hero', { y: 20, opacity: 0, stagger: 0.08, duration: 1, ease: 'power3.out' }, '-=1.1'),
   )
   const [mods] = await Promise.all([chapterMods, intro])

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { graniteCanvas } from './fortress.js'
 
 // Enter the Anam: a granite gothic gateway in the dark, its two stone doors
 // carved with the motto ring split down the middle. As the visitor scrolls
@@ -87,7 +88,15 @@ export class Gate {
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.5, 400)
 
-    const stone = new THREE.MeshStandardMaterial({ color: '#57524d', roughness: 0.95 })
+    const gc = graniteCanvas()
+    const gt = (srgb) => {
+      const t = new THREE.CanvasTexture(gc)
+      t.wrapS = t.wrapT = THREE.RepeatWrapping
+      t.repeat.set(0.08, 0.08)
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace
+      return t
+    }
+    const stone = new THREE.MeshStandardMaterial({ map: gt(true), bumpMap: gt(false), bumpScale: 2.5, color: '#a59d94', roughness: 0.95 })
     // The wall with its pointed-arch doorway.
     const wallShape = new THREE.Shape([new THREE.Vector2(-120, -2), new THREE.Vector2(120, -2), new THREE.Vector2(120, 90), new THREE.Vector2(-120, 90)])
     wallShape.holes.push(new THREE.Path(archShape(AW, AH).getPoints(48)))
@@ -96,7 +105,7 @@ export class Gate {
     // Moulded arch frame, a little proud of the wall.
     const frameShape = archShape(AW + 4, AH)
     frameShape.holes.push(new THREE.Path(archShape(AW, AH).getPoints(48)))
-    const frame = new THREE.Mesh(new THREE.ExtrudeGeometry(frameShape, { depth: 2, bevelEnabled: true, bevelSize: 0.4, bevelThickness: 0.4 }), new THREE.MeshStandardMaterial({ color: '#8a847c', roughness: 0.85 }))
+    const frame = new THREE.Mesh(new THREE.ExtrudeGeometry(frameShape, { depth: 2, bevelEnabled: true, bevelSize: 0.4, bevelThickness: 0.4 }), new THREE.MeshStandardMaterial({ map: gt(true), bumpMap: gt(false), bumpScale: 1.5, color: '#d6cec4', roughness: 0.85 }))
     frame.position.z = 3
     // Towers either side with battlements.
     const towers = []
@@ -135,7 +144,7 @@ export class Gate {
       const uv = geo.attributes.uv
       const p = geo.attributes.position
       for (let i = 0; i < uv.count; i++) uv.setXY(i, (p.getX(i) + AW / 2) / AW, p.getY(i) / APEX)
-      const door = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }))
+      const door = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, bumpMap: tex, bumpScale: 3, roughness: 0.88, color: '#e8e0d6' }))
       door.position.z = -0.8
       return door
     }
@@ -151,14 +160,44 @@ export class Gate {
     // Stone floor in front, lit by the light spilling through.
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(240, 200), new THREE.MeshStandardMaterial({ color: '#2a2624', roughness: 1 }))
     floor.rotation.x = -Math.PI / 2
-    floor.position.set(0, -2, 60)
+    floor.position.set(0, -2, 97)
     this.scene.add(floor)
-    this.moon = new THREE.DirectionalLight('#8a95c0', 0.6)
+    this.moon = new THREE.DirectionalLight('#8a95c0', 0.9)
     this.moon.position.set(-30, 60, 80)
     this.spill = new THREE.SpotLight('#ffcf90', 0, 160, 0.5, 0.6, 1)
     this.spill.position.set(0, 16, -30)
     this.spill.target.position.set(0, -2, 40)
-    this.scene.add(this.moon, this.spill, this.spill.target, new THREE.AmbientLight('#3a2a30', 1.2))
+    this.scene.add(this.moon, this.spill, this.spill.target, new THREE.HemisphereLight('#3a3550', '#1a0d0e', 1.1))
+    // The seam's own crimson light on the doors and the floor.
+    this.seamLight = new THREE.PointLight('#ff2a14', 0, 60, 1.6)
+    this.seamLight.position.set(0, 10, 4)
+    this.scene.add(this.seamLight)
+    // Torches on both towers, flickering, with a flame you can see.
+    this.torches = []
+    const flameMat = new THREE.MeshBasicMaterial({ color: '#ffb35a', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
+    const bracket = new THREE.MeshStandardMaterial({ color: '#1b1a1d', metalness: 0.7, roughness: 0.4 })
+    for (const x of [-AW / 2 - 4.2, AW / 2 + 4.2]) {
+      const l = new THREE.PointLight('#ff9a4a', 220, 70, 1.7)
+      l.position.set(x, 15.5, 10.5)
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.4, 1.2, 10), bracket)
+      cup.position.set(x, 14.4, 9.2)
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 2.6), bracket)
+      arm.position.set(x, 13.9, 8.2)
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.7, 2.6, 10, 1, true), flameMat.clone())
+      flame.position.set(x, 16.1, 9.2)
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 8), new THREE.MeshBasicMaterial({ color: '#ff7a2a', transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }))
+      halo.position.copy(flame.position)
+      this.scene.add(l, cup, arm, flame, halo)
+      this.torches.push({ l, flame, halo, seed: Math.random() * 10 })
+    }
+    // Dust drifting in the light that pours through the opening.
+    const DN = 500
+    const dp = new Float32Array(DN * 3)
+    for (let i = 0; i < DN; i++) dp.set([(Math.random() - 0.5) * AW * 1.4, Math.random() * 26 - 2, Math.random() * 36 + 2], i * 3)
+    const dg = new THREE.BufferGeometry()
+    dg.setAttribute('position', new THREE.BufferAttribute(dp, 3))
+    this.dust = new THREE.Points(dg, new THREE.PointsMaterial({ color: '#ffd8a0', size: 0.09, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }))
+    this.scene.add(this.dust)
 
     this.progress = 0
     this.time = 0
@@ -193,7 +232,18 @@ export class Gate {
     this.seam.material.opacity = (0.3 + 0.7 * S(p, 0.02, 0.18)) * (1 - o) * (0.85 + 0.15 * Math.sin(this.time * 9))
     this.seam.scale.x = 1 + S(p, 0.05, 0.18) * 2
     this.spill.intensity = o * 900
-    this.moon.intensity = 0.6 * (1 - o * 0.6)
+    this.moon.intensity = 0.9 * (1 - o * 0.6)
+    this.seamLight.intensity = this.seam.material.opacity * 260
+    for (const t of this.torches) {
+      const f = 0.8 + 0.2 * Math.sin(this.time * 13 + t.seed) * Math.sin(this.time * 7.3 + t.seed * 2)
+      t.l.intensity = 220 * f
+      t.flame.scale.set(1, f * 1.1, 1)
+      t.flame.material.opacity = 0.75 * f
+      t.halo.scale.setScalar(0.9 + f * 0.3)
+    }
+    this.dust.material.opacity = o * 0.8
+    this.dust.rotation.y = Math.sin(this.time * 0.1) * 0.02
+    this.dust.position.y = Math.sin(this.time * 0.3) * 0.5
 
     // Walk up to the gate and through it.
     const walk = S(p, 0.5, 0.95)

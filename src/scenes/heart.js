@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 
 // The Crimson Core: a faceted ruby heart beating in the dark. Every pump
 // (Space, click, tap) swells it, fires a ring of lava embers and a drum hit,
@@ -23,31 +24,97 @@ export class Heart {
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100)
     this.camera.position.set(0, 0, 11)
 
-    // Heart: two lobes and a point, as one faceted gem.
-    const geo = new THREE.IcosahedronGeometry(1.6, 1)
-    const p = geo.attributes.position
-    const v = new THREE.Vector3()
-    for (let i = 0; i < p.count; i++) {
-      v.fromBufferAttribute(p, i)
-      const y = v.y
-      // Pull the bottom to a point and dent the top into two lobes.
-      v.x *= 1 + 0.25 * Math.max(0, y)
-      v.y = y > 0 ? y * 0.85 - 0.45 * Math.exp(-(v.x * v.x) * 3) * (y / 1.6) : y * 1.35 - 0.15 * (1 - Math.abs(v.x) / 1.6)
-      v.z *= 0.8
-      p.setXYZ(i, v.x, v.y + 0.2, v.z)
+    // Heart: a cut ruby. A heart outline is the girdle; a smaller copy
+    // raised in front is the table, a point set deep behind is the culet,
+    // and flat facets join them, the way a stone cutter would.
+    const hs = new THREE.Shape()
+    hs.moveTo(0, -1.55)
+    hs.bezierCurveTo(-0.6, -0.95, -1.75, -0.35, -1.6, 0.55)
+    hs.bezierCurveTo(-1.45, 1.35, -0.45, 1.6, 0, 0.85)
+    hs.bezierCurveTo(0.45, 1.6, 1.45, 1.35, 1.6, 0.55)
+    hs.bezierCurveTo(1.75, -0.35, 0.6, -0.95, 0, -1.55)
+    const ring = hs.getSpacedPoints(32).slice(0, -1)
+    const mid = new THREE.Vector2(0, 0.1)
+    const girdle = ring.map((p) => new THREE.Vector3(p.x, p.y, 0))
+    const star = ring.map((p, i) => {
+      const q = p.clone().sub(mid).multiplyScalar(0.78).add(mid)
+      return new THREE.Vector3(q.x, q.y, 0.32 + (i % 2) * 0.04)
+    })
+    const table = ring.map((p) => {
+      const q = p.clone().sub(mid).multiplyScalar(0.5).add(mid)
+      return new THREE.Vector3(q.x, q.y, 0.5)
+    })
+    const pav = ring.map((p) => {
+      const q = p.clone().sub(mid).multiplyScalar(0.55).add(mid)
+      return new THREE.Vector3(q.x, q.y, -0.55)
+    })
+    const culet = new THREE.Vector3(mid.x, mid.y, -1.0)
+    const tri = []
+    const T = (a, b, c) => tri.push(a, b, c)
+    const n = ring.length
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n
+      // Crown: girdle up to the star ring, star ring up to the table.
+      T(girdle[i], girdle[j], star[j])
+      T(girdle[i], star[j], star[i])
+      T(star[i], star[j], table[j])
+      T(star[i], table[j], table[i])
+      // Pavilion: girdle down to the lower ring, then to the culet.
+      T(girdle[j], girdle[i], pav[i])
+      T(girdle[j], pav[i], pav[j])
+      T(pav[j], pav[i], culet)
+    }
+    // The table itself, a flat heart.
+    const faces = THREE.ShapeUtils.triangulateShape(table.map((v) => new THREE.Vector2(v.x, v.y)), [])
+    for (const [a, b, c] of faces) T(table[a], table[b], table[c])
+    const geo = new THREE.BufferGeometry().setFromPoints(tri)
+    // Fix the winding of any face pointing inward.
+    const pp = geo.attributes.position
+    const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), N = new THREE.Vector3(), M = new THREE.Vector3()
+    for (let i = 0; i < pp.count; i += 3) {
+      A.fromBufferAttribute(pp, i)
+      B.fromBufferAttribute(pp, i + 1)
+      C.fromBufferAttribute(pp, i + 2)
+      N.subVectors(B, A).cross(M.subVectors(C, A))
+      M.copy(A).add(B).add(C).divideScalar(3).sub(new THREE.Vector3(mid.x, mid.y, -0.1))
+      if (N.dot(M) < 0) (pp.setXYZ(i + 1, C.x, C.y, C.z), pp.setXYZ(i + 2, B.x, B.y, B.z))
     }
     geo.computeVertexNormals()
+    geo.translate(0, -0.1, 0.2)
+    geo.scale(1.05, 1.05, 1.1)
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture
     this.gem = new THREE.Mesh(
       geo,
-      new THREE.MeshStandardMaterial({ color: '#8a0000', emissive: '#c8102e', emissiveIntensity: 0.35, roughness: 0.18, metalness: 0.3, flatShading: true }),
+      new THREE.MeshPhysicalMaterial({
+        color: '#9a0016',
+        emissive: '#5a000c',
+        emissiveIntensity: 0.25,
+        roughness: 0.06,
+        metalness: 0.75,
+        clearcoat: 1,
+        clearcoatRoughness: 0.04,
+        envMapIntensity: 1.5,
+        transparent: true,
+        opacity: 0.86,
+        flatShading: true,
+      }),
     )
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 2), new THREE.MeshBasicMaterial({ color: '#ff4500', transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }))
-    core.scale.set(1.1, 1.1, 0.8)
+    this.gem.renderOrder = 2
+    // A molten core inside, seen through the stone.
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 3), new THREE.MeshBasicMaterial({ color: '#ff2a0a', transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }))
+    core.scale.set(1.3, 1.1, 0.5)
+    core.position.y = 0.05
+    core.renderOrder = 1
     this.core = core
+    // Facet edges catching the light.
+    this.edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 8), new THREE.LineBasicMaterial({ color: '#ff9080', transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }))
     this.heart = new THREE.Group()
-    this.heart.add(this.gem, core)
+    this.heart.add(core, this.gem, this.edges)
     this.scene.add(this.heart)
-    const key = new THREE.PointLight('#ffb080', 60, 30)
+    this.coreLight = new THREE.PointLight('#ff3a1a', 30, 12)
+    this.heart.add(this.coreLight)
+    const key = new THREE.PointLight('#ffd0b0', 70, 30)
     key.position.set(4, 5, 6)
     const rim = new THREE.PointLight('#ff2020', 80, 30)
     rim.position.set(-5, -2, -3)
@@ -82,7 +149,7 @@ export class Heart {
 
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.5, 0.45)
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.5, 0.7)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
 
@@ -159,10 +226,12 @@ export class Heart {
     const rest = Math.pow(Math.max(0, Math.sin(this.time * 6.28)), 12) + 0.6 * Math.pow(Math.max(0, Math.sin(this.time * 6.28 - 0.9)), 12)
     const s = 1 + rest * 0.05 + this.pulse * 0.28 + this.energy * 0.12
     this.heart.scale.setScalar(s)
-    this.heart.rotation.y = this.time * 0.35
+    this.heart.rotation.y = Math.sin(this.time * 0.45) * 0.7
     this.heart.rotation.z = Math.sin(this.time * 0.7) * 0.08
-    this.gem.material.emissiveIntensity = 0.3 + this.pulse * 0.6 + this.energy * 0.25
-    this.core.material.opacity = 0.3 + this.pulse * 0.3
+    this.gem.material.emissiveIntensity = 0.2 + this.pulse * 0.8 + this.energy * 0.4
+    this.core.material.opacity = 0.3 + this.pulse * 0.5
+    this.coreLight.intensity = 25 + this.pulse * 60 + this.energy * 30
+    this.edges.material.opacity = 0.22 + this.pulse * 0.4
     this.bloom.strength = 0.55 + this.pulse * 0.45 + this.energy * 0.3
 
     for (let i = 0; i < EMBERS; i++) {

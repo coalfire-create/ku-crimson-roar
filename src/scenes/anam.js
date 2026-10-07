@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { Sky } from 'three/examples/jsm/objects/Sky.js'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import DATA from '../data/campus.json'
 import WORLD from '../data/world.json'
 
@@ -32,8 +36,8 @@ const SUN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToR
 const NIGHT = { value: 0 }
 const DUSK = {
   sun: [new THREE.Color('#ffc98f'), new THREE.Color('#ff7a45')],
-  sky: [new THREE.Color('#a9c3e6'), new THREE.Color('#34487a')],
-  fog: [new THREE.Color('#a9b4c0'), new THREE.Color('#34436a')],
+  sky: [new THREE.Color('#d8b9a0'), new THREE.Color('#3a3260')],
+  fog: [new THREE.Color('#b9a08e'), new THREE.Color('#2e2748')],
 }
 
 // Wall / roof look by style: s = style index, per-building seed, base and top.
@@ -101,7 +105,7 @@ const buildingChunks = {
       if (bStyle > 0.5 && bStyle < 1.5) inWin *= step(0.07, abs(cell.x)) * step(0.07, abs(cell.y - 0.3));
       winMask = inWin;
       float r = hash(vec3(fl, bay, bSeed * 91.0));
-      lit = inWin * step(0.82 - uNight * 0.32, r);
+      lit = inWin * step(0.84 - uNight * 0.46, r);
       // Glass mirrors the golden sky toward the top of each pane.
       vec3 sky = mix(vec3(0.95, 0.72, 0.45), vec3(0.45, 0.6, 0.8), clamp(cell.y / g.w + 0.5, 0.0, 1.0));
       vec3 glassCol = mix(glass, sky * (1.0 - uNight * 0.75), 0.28 + 0.2 * r);
@@ -190,7 +194,7 @@ export class AnamFlight {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.25 : 1.6))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 0.5
+    this.renderer.toneMappingExposure = 0.6
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.scene = new THREE.Scene()
@@ -213,6 +217,13 @@ export class AnamFlight {
     this.#buildHalls()
     this.#buildStatue()
     this.#loadTerrain()
+
+    // Bloom: lit windows and the pawprint trail glow as dusk falls.
+    this.composer = new EffectComposer(this.renderer)
+    this.composer.addPass(new RenderPass(this.scene, this.camera))
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.5, 2.6)
+    this.composer.addPass(this.bloom)
+    this.composer.addPass(new OutputPass())
 
     addEventListener('pointermove', (e) => this.mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))
     canvas.addEventListener('pointerenter', () => (this.hover = true))
@@ -254,7 +265,7 @@ export class AnamFlight {
     this.scene.environment = pmrem.fromScene(envScene, 0, 1, 30000).texture
     this.scene.environmentIntensity = 0.35
     pmrem.dispose()
-    this.scene.fog = new THREE.Fog('#a9b4c0', 900, 3800)
+    this.scene.fog = new THREE.Fog('#b9a08e', 900, 3800)
 
     this.sun = new THREE.DirectionalLight('#ffc98f', 3.2)
     this.sun.castShadow = true
@@ -268,7 +279,7 @@ export class AnamFlight {
     c.updateProjectionMatrix()
     this.sun.shadow.bias = -0.0004
     this.sun.shadow.normalBias = 0.6
-    this.hemi = new THREE.HemisphereLight('#a9c3e6', '#5a4d3c', 0.55)
+    this.hemi = new THREE.HemisphereLight('#d8b9a0', '#5a4235', 0.55)
     this.scene.add(this.sun, this.sun.target, this.hemi)
   }
 
@@ -860,6 +871,7 @@ export class AnamFlight {
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
     this.renderer.setSize(w, h, false)
+    this.composer?.setSize(w, h)
     this.camera.aspect = w / h
     this.portrait = w / h < 0.8
     this.camera.fov = this.portrait ? 74 : 58
@@ -1004,7 +1016,8 @@ export class AnamFlight {
       t.near = this.free ? 0 : Math.max(0, d >= 0 ? 1 - d / 0.08 : 1 + d / 0.03)
       if (t.box) t.box.material.opacity = t.near * 0.9
     }
-    this.renderer.render(this.scene, this.camera)
+    this.bloom.strength = 0.25 + NIGHT.value * 0.55
+    this.composer.render()
   }
 
   #updatePaws(dt) {
