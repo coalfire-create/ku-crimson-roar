@@ -260,7 +260,7 @@ export class AnamFlight {
     this.#loadTerrain()
 
     // The tiger itself, running at the head of its pawprint trail.
-    this.tiger = new RunTiger(this.scene, undefined, { scale: 0.024 })
+    this.tiger = new RunTiger(this.scene, undefined, { scale: 0.024, fur: MOBILE ? 3 : 6 })
 
     // Bloom: lit windows and the pawprint trail glow as dusk falls.
     this.composer = new EffectComposer(this.renderer)
@@ -412,14 +412,19 @@ export class AnamFlight {
     geo.translate(T.x0 + W / 2, 0, T.z0 + D / 2)
     const gmat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 })
     // Close-up detail under the aerial photo (Poly Haven, CC0): asphalt on
-    // the dark roads, paving on the light walks, leaf litter on green ground.
+    // the dark roads, paving on the light walks, leaf litter on green ground,
+    // each with its normal map. Tree crowns and their shadows baked into the
+    // photo are swapped for plausible ground near the eye (the 3D trees and
+    // their real shadows stand there instead); far away the photo is kept.
     const detail = {}
     for (const [k, f] of [['uAsph', 'asphalt_02'], ['uPave', 'patterned_paving_02'], ['uSoil', 'forrest_ground_01']]) {
-      const t = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/${f}.jpg`)
-      t.colorSpace = THREE.SRGBColorSpace
-      t.wrapS = t.wrapT = THREE.RepeatWrapping
-      t.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
-      detail[k] = { value: t }
+      for (const [kk, ff, srgb] of [[k, f, true], [k + 'N', f + '_nor', false]]) {
+        const t = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/${ff}.jpg`)
+        if (srgb) t.colorSpace = THREE.SRGBColorSpace
+        t.wrapS = t.wrapT = THREE.RepeatWrapping
+        t.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
+        detail[kk] = { value: t }
+      }
     }
     gmat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, AER, detail)
@@ -427,30 +432,93 @@ export class AnamFlight {
         .replace('#include <common>', '#include <common>\nvarying vec2 vXZ;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvXZ = (modelMatrix * vec4(transformed, 1.0)).xz;')
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec2 vXZ;\nuniform sampler2D uAsph, uPave, uSoil;\n' + AER_GLSL)
+        .replace(
+          '#include <common>',
+          `#include <common>
+          varying vec2 vXZ;
+          uniform sampler2D uAsph, uPave, uSoil, uAsphN, uPaveN, uSoilN;
+          ${AER_GLSL}
+          const vec3 LUMW = vec3(0.299, 0.587, 0.114);
+          // The photo blurred over a few metres: the neighbourhood's colour.
+          vec3 aerialBlur(vec2 xz, float b){
+            vec2 uc = xz * uCoreX.xy + uCoreX.zw;
+            vec2 ub = xz * uBaseX.xy + uBaseX.zw;
+            vec2 e = smoothstep(0.0, 0.03, uc) * smoothstep(1.0, 0.97, uc);
+            return mix(texture2D(uBase, ub, b - 2.0).rgb, texture2D(uCore, uc, b).rgb, e.x * e.y);
+          }
+          float gHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float gNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(gHash(i), gHash(i + vec2(1, 0)), f.x), mix(gHash(i + vec2(0, 1)), gHash(i + 1.0), f.x), f.y); }
+          // Two scales of one detail texture, as grain around 1 (texture over its own average).
+          vec3 grain(sampler2D t, vec2 xz, float s1, float s2, float k){
+            vec2 a = xz / s1, b = mat2(0.8, -0.6, 0.6, 0.8) * xz / s2;
+            vec3 g1 = texture2D(t, a).rgb / max(texture2D(t, a, 12.0).rgb, vec3(0.02));
+            vec3 g2 = texture2D(t, b).rgb / max(texture2D(t, b, 12.0).rgb, vec3(0.02));
+            return mix(g1, g2, k);
+          }
+          vec3 bump(sampler2D t, vec2 xz, float s1, float s2, float k){
+            vec2 a = xz / s1, b = mat2(0.8, -0.6, 0.6, 0.8) * xz / s2;
+            vec3 n1 = texture2D(t, a).xyz * 2.0 - 1.0;
+            vec3 n2 = texture2D(t, b).xyz * 2.0 - 1.0;
+            n2.xy = mat2(0.8, 0.6, -0.6, 0.8) * n2.xy;
+            return mix(n1, n2, k);
+          }`,
+        )
         .replace(
           '#include <map_fragment>',
           `#include <map_fragment>
+          vec3 gN = vec3(0.0, 0.0, 1.0);
+          float gW = 0.0;
           if (uAerOn > 0.5) {
-            vec3 aer = aerialAt(vXZ) * 1.2;
+            float dist = length(vViewPosition);
+            vec3 raw = aerialAt(vXZ);
+            float rl = dot(raw, LUMW);
+            // Canopy and its shadow in the photo: very dark, or dark and green.
+            float dg = clamp((raw.g - max(raw.r, raw.b)) * 25.0, 0.0, 1.0);
+            float canopy = max(smoothstep(0.075, 0.035, rl), dg * smoothstep(0.13, 0.07, rl));
+            float swap = canopy * (1.0 - smoothstep(70.0, 280.0, dist));
+            // What lies under it: paving in built-up areas, grass and soil in green ones.
+            vec3 hood = aerialBlur(vXZ, 6.0);
+            float hoodGreen = clamp((hood.g - max(hood.r, hood.b)) * 30.0, 0.0, 1.0);
+            float big = gNoise(vXZ / 23.0);
+            vec3 under = mix(vec3(0.15, 0.14, 0.12), mix(vec3(0.085, 0.1, 0.045), vec3(0.12, 0.1, 0.07), big), hoodGreen);
+            // A little of the neighbourhood's own hue.
+            under = mix(under, hood / max(dot(hood, LUMW), 0.01) * dot(under, LUMW), 0.35);
+            raw = mix(raw, under, swap);
+            vec3 aer = raw * 1.2;
             // The photo's baked shadows are deeper than the scene's own: lift them.
-            aer = aer * (1.0 + 1.3 * (1.0 - smoothstep(0.0, 0.2, dot(aer, vec3(0.299, 0.587, 0.114))))) + vec3(0.025, 0.024, 0.02);
+            aer = aer * (1.0 + 1.3 * (1.0 - smoothstep(0.0, 0.2, dot(aer, LUMW)))) + vec3(0.025, 0.024, 0.02);
             aer = pow(aer, vec3(0.85)) * 1.1;
-            // Detail fades in near the eye, as each texture over its own
-            // average so the photo's colour is kept and only grain is added.
-            float near = 1.0 - smoothstep(30.0, 160.0, length(vViewPosition));
+            // Broad, gentle variation so nothing reads as a repeat.
+            aer *= mix(1.0, 0.92 + 0.16 * gNoise(vXZ / 41.0 + 7.0), 1.0 - smoothstep(150.0, 500.0, dist));
+            float near = 1.0 - smoothstep(40.0, 220.0, dist);
             if (near > 0.0) {
-              float lum = dot(aer, vec3(0.299, 0.587, 0.114));
-              float green = clamp((aer.g - max(aer.r, aer.b)) * 10.0, 0.0, 1.0);
-              vec2 a = vXZ / 3.2, p = vXZ / 2.2, s = vXZ / 2.6;
-              vec3 da = texture2D(uAsph, a).rgb / max(texture2D(uAsph, a, 12.0).rgb, vec3(0.02));
-              vec3 dp = texture2D(uPave, p).rgb / max(texture2D(uPave, p, 12.0).rgb, vec3(0.02));
-              vec3 ds = texture2D(uSoil, s).rgb / max(texture2D(uSoil, s, 12.0).rgb, vec3(0.02));
-              vec3 d = mix(mix(da, mix(da, dp, 0.7), smoothstep(0.1, 0.22, lum)), ds, green);
-              d = clamp(mix(vec3(1.0), d, 0.8), 0.35, 1.9);
+              float lum = dot(aer, LUMW);
+              float green = max(clamp((aer.g - max(aer.r, aer.b)) * 10.0, 0.0, 1.0), swap * hoodGreen);
+              float paved = smoothstep(0.1, 0.22, lum) * (1.0 - green);
+              float k = smoothstep(0.3, 0.7, gNoise(vXZ / 17.0));
+              vec3 da = grain(uAsph, vXZ, 1.7, 5.3, k);
+              vec3 dp = grain(uPave, vXZ, 2.0, 2.0, 0.0);
+              vec3 ds = grain(uSoil, vXZ, 1.9, 6.1, k);
+              vec3 d = mix(mix(da, mix(da, dp, 0.7), paved), ds, green);
+              d = clamp(d, 0.3, 2.0);
               aer *= mix(vec3(1.0), d, near);
+              vec3 na = bump(uAsphN, vXZ, 1.7, 5.3, k);
+              vec3 np = bump(uPaveN, vXZ, 2.0, 2.0, 0.0);
+              vec3 ns = bump(uSoilN, vXZ, 1.9, 6.1, k);
+              gN = mix(mix(na, mix(na, np, 0.7), paved), ns, green);
+              gW = near;
             }
             diffuseColor.rgb = aer;
+          }`,
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          `#include <normal_fragment_maps>
+          if (gW > 0.0) {
+            // Ground tangent frame: u along +x, v along +z, up +y.
+            vec3 nw = vec3(gN.x * 1.4, 0.0, gN.y * 1.4);
+            normal = normalize(normal + (viewMatrix * vec4(nw, 0.0)).xyz * gW);
           }`,
         )
     }
@@ -675,42 +743,6 @@ export class AnamFlight {
       }
       return y0 - y1 < CHASE.up * 1.6
     }
-    for (let i = 0; i < N; i++) {
-      const u = i / (N - 1)
-      const t = this.#routeT(u)
-      const tp = this.route.getPointAt(t)
-      let c = null
-      for (const back of [CHASE.back, 13, 10, 7, 5]) {
-        const tryC = clearOf(this.route.getPointAt(Math.max(0, t - back / L)))
-        if (sees(tryC, tp)) {
-          c = tryC
-          break
-        }
-      }
-      c ??= this.route.getPointAt(Math.max(0, t - 5 / L))
-      const q = this.route.getPointAt(Math.min(1, t + CHASE.ahead / L))
-      const up = THREE.MathUtils.smoothstep(u, TOUR_END, 1)
-      const ground = this.groundAt(tp.x, tp.z)
-      A.x[i] = c.x
-      A.z[i] = c.z + up * 420
-      // Height above the tiger's own ground, never into the slope under the eye.
-      A.y[i] = Math.max(ground + CHASE.up, this.groundAt(c.x, c.z) + 1.5) + up * 520
-      // Aim down the road, but never so far off the tiger (round a bend, or
-      // looking out over it from a rise) that it leaves the frame.
-      const camY = A.y[i] - up * 520
-      const dT = Math.hypot(tp.x - c.x, tp.z - c.z)
-      const yawT = Math.atan2(tp.x - c.x, tp.z - c.z)
-      let dy = Math.atan2(q.x - c.x, q.z - c.z) - yawT
-      dy = Math.atan2(Math.sin(dy), Math.cos(dy))
-      const yaw = yawT + THREE.MathUtils.clamp(dy, -0.35, 0.35)
-      const r = Math.max(20, Math.hypot(q.x - c.x, q.z - c.z))
-      const pitchT = Math.atan2(ground + 1.2 - camY, Math.max(1, dT))
-      const pitchQ = Math.atan2(Math.max(this.groundAt(q.x, q.z), ground) + CHASE.look - camY, r)
-      const pitch = THREE.MathUtils.clamp(pitchQ, pitchT - 0.05, pitchT + 0.32)
-      A.lx[i] = THREE.MathUtils.lerp(c.x + Math.sin(yaw) * r, 60, up)
-      A.lz[i] = THREE.MathUtils.lerp(c.z + Math.cos(yaw) * r, -380, up)
-      A.ly[i] = THREE.MathUtils.lerp(camY + Math.tan(pitch) * r, 0, up)
-    }
     const blur = (arr, r, passes = 3) => {
       const t = new Float32Array(arr.length)
       for (let p = 0; p < passes; p++) {
@@ -727,16 +759,71 @@ export class AnamFlight {
         arr.set(t)
       }
     }
-    // Smooth the corners a little; the aim more than the eye.
-    for (const k of ['x', 'z', 'y']) blur(A[k], 3)
-    // Smoothing can pull the eye back toward a corner: push it out once more.
+    // Pass 1, where the eye stands: the longest chase distance that keeps
+    // the tiger in sight, pushed off the walls.
+    const TP = []
+    const cx = new Float32Array(N)
+    const cz = new Float32Array(N)
+    for (let i = 0; i < N; i++) {
+      const t = this.#routeT(i / (N - 1))
+      const tp = this.route.getPointAt(t)
+      TP.push(tp)
+      let c = null
+      for (const back of [CHASE.back, 13, 10, 7, 5]) {
+        const tryC = clearOf(this.route.getPointAt(Math.max(0, t - back / L)))
+        if (sees(tryC, tp)) {
+          c = tryC
+          break
+        }
+      }
+      c ??= this.route.getPointAt(Math.max(0, t - 5 / L))
+      cx[i] = c.x
+      cz[i] = c.z
+    }
+    // Pass 2: smooth it, keep it off the walls, and wherever smoothing has
+    // put something between eye and tiger, slide the eye along that line
+    // toward the tiger until it sees it again.
+    blur(cx, 4)
+    blur(cz, 4)
     const v = new THREE.Vector3()
     for (let i = 0; i < N; i++) {
-      clearOf(v.set(A.x[i], 0, A.z[i]))
-      A.x[i] = v.x
-      A.z[i] = v.z
+      clearOf(v.set(cx[i], 0, cz[i]))
+      const tp = TP[i]
+      for (let k = 0; k < 8 && !sees(v, tp); k++) v.lerp(new THREE.Vector3(tp.x, 0, tp.z), 0.2)
+      cx[i] = v.x
+      cz[i] = v.z
     }
-    for (const k of ['lx', 'lz', 'ly']) blur(A[k], 8)
+    // Pass 3: height and aim from the final eye position.
+    for (let i = 0; i < N; i++) {
+      const u = i / (N - 1)
+      const t = this.#routeT(u)
+      const tp = TP[i]
+      const q = this.route.getPointAt(Math.min(1, t + CHASE.ahead / L))
+      const up = THREE.MathUtils.smoothstep(u, TOUR_END, 1)
+      const ground = this.groundAt(tp.x, tp.z)
+      const c = { x: cx[i], z: cz[i] }
+      A.x[i] = c.x
+      A.z[i] = c.z + up * 420
+      // Height above the tiger's own ground, never into the slope under the eye.
+      const camY = Math.max(ground + CHASE.up, this.groundAt(c.x, c.z) + 1.5)
+      A.y[i] = camY + up * 520
+      // Aim down the road, but never so far off the tiger (round a bend, or
+      // looking out over it from a rise) that it leaves the frame.
+      const dT = Math.hypot(tp.x - c.x, tp.z - c.z)
+      const yawT = Math.atan2(tp.x - c.x, tp.z - c.z)
+      let dy = Math.atan2(q.x - c.x, q.z - c.z) - yawT
+      dy = Math.atan2(Math.sin(dy), Math.cos(dy))
+      const yaw = yawT + THREE.MathUtils.clamp(dy, -0.22, 0.22)
+      const r = Math.max(20, Math.hypot(q.x - c.x, q.z - c.z))
+      const pitchT = Math.atan2(ground + 1.2 - camY, Math.max(1, dT))
+      const pitchQ = Math.atan2(Math.max(this.groundAt(q.x, q.z), ground) + CHASE.look - camY, r)
+      const pitch = THREE.MathUtils.clamp(pitchQ, pitchT - 0.05, pitchT + 0.32)
+      A.lx[i] = THREE.MathUtils.lerp(c.x + Math.sin(yaw) * r, 60, up)
+      A.lz[i] = THREE.MathUtils.lerp(c.z + Math.cos(yaw) * r, -380, up)
+      A.ly[i] = THREE.MathUtils.lerp(camY + Math.tan(pitch) * r, 0, up)
+    }
+    blur(A.y, 3)
+    for (const k of ['lx', 'lz', 'ly']) blur(A[k], 6)
     const R = A
     this.path = { ...R, N }
     // Lock-ons peak when the aim passes closest to each landmark.
@@ -880,6 +967,101 @@ export class AnamFlight {
       return Math.abs(a / 2)
     }
 
+    // Road points, for turning each hall's entrance to the street.
+    const roadPts = []
+    for (const w of DATA.paths) for (const q of w.p) roadPts.push(q)
+    const roadDist = (x, z) => {
+      let d = Infinity
+      for (const [rx, rz] of roadPts) d = Math.min(d, (rx - x) ** 2 + (rz - z) ** 2)
+      return Math.sqrt(d)
+    }
+    // Main entrance of a stone hall: a projecting stone frontispiece with a
+    // pointed-arch doorway (gothic) or a round arch, an oak door and three steps,
+    // on the longest wall that faces the nearest road.
+    const entrance = (P, base, top, seed, gothic) => {
+      let area2 = 0
+      for (let k = 0; k < P.length - 1; k++) area2 += P[k][0] * P[k + 1][1] - P[k + 1][0] * P[k][1]
+      const sgn = area2 > 0 ? 1 : -1
+      const edges = []
+      for (let k = 0; k < P.length - 1; k++) {
+        const [x0, z0] = P[k]
+        const [x1, z1] = P[k + 1]
+        const len = Math.hypot(x1 - x0, z1 - z0)
+        if (len < 9) continue
+        const tx = (x1 - x0) / len
+        const tz = (z1 - z0) / len
+        edges.push({ len, tx, tz, nx: tz * sgn, nz: -tx * sgn, mx: (x0 + x1) / 2, mz: (z0 + z1) / 2 })
+      }
+      if (!edges.length) return
+      const maxL = Math.max(...edges.map((e) => e.len))
+      let best = null
+      for (const e of edges) {
+        if (e.len < maxL * 0.55) continue
+        const d = roadDist(e.mx + e.nx * 4, e.mz + e.nz * 4)
+        const score = d - e.len * 0.15
+        if (!best || score < best.score) best = { ...e, score }
+      }
+      const e = best
+      const W = Math.min(6.4, e.len * 0.3)
+      const ow = W * 0.42 // opening width
+      const sill = 0.5
+      const oh = Math.min(4.6, (top - base) * 0.45) // opening height to the apex
+      const ph = Math.min(top - base - 1, oh + 2.2)
+      const depth = 1.1
+      // Outline in local x (along the wall), y (up); gabled top on gothic halls.
+      const sh = new THREE.Shape()
+      sh.moveTo(-W / 2, 0)
+      sh.lineTo(W / 2, 0)
+      sh.lineTo(W / 2, ph)
+      if (gothic) sh.lineTo(0, ph + W * 0.32)
+      sh.lineTo(-W / 2, ph)
+      sh.closePath()
+      const hole = new THREE.Path()
+      const r = ow / 2
+      const y0 = sill + oh - (gothic ? r * 1.732 : r)
+      hole.moveTo(-r, sill)
+      hole.lineTo(r, sill)
+      hole.lineTo(r, y0)
+      if (gothic) {
+        // Equilateral pointed arch: arcs of radius 2r about the opposite springers.
+        for (let k = 1; k <= 8; k++) {
+          const t = (k / 8) * (Math.PI / 3)
+          hole.lineTo(-r + 2 * r * Math.cos(t), y0 + 2 * r * Math.sin(t))
+        }
+        for (let k = 7; k >= 0; k--) {
+          const t = (k / 8) * (Math.PI / 3)
+          hole.lineTo(r - 2 * r * Math.cos(t), y0 + 2 * r * Math.sin(t))
+        }
+      } else {
+        for (let k = 1; k <= 12; k++) {
+          const t = (k / 12) * Math.PI
+          hole.lineTo(r * Math.cos(t), y0 + r * Math.sin(t))
+        }
+      }
+      hole.lineTo(-r, sill)
+      sh.holes.push(hole)
+      const M = new THREE.Matrix4().makeBasis(new THREE.Vector3(e.tx, 0, e.tz), new THREE.Vector3(0, 1, 0), new THREE.Vector3(e.nx, 0, e.nz))
+      M.setPosition(e.mx, base, e.mz)
+      const place = (g) => g.applyMatrix4(M)
+      const front = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false })
+      front.translate(0, 0, -0.2)
+      const fp = [[-W / 2, -0.2], [W / 2, -0.2], [W / 2, depth], [-W / 2, depth], [-W / 2, -0.2]].map(([x, z]) => {
+        const v = new THREE.Vector3(x, 0, z).applyMatrix4(M)
+        return [v.x, v.z]
+      })
+      add(place(front), BST.trim, seed, base, top, fp)
+      // Deep reveal behind the arch, then the door set back in it.
+      const door = new THREE.PlaneGeometry(ow, oh)
+      door.translate(0, sill + oh / 2, 0.15)
+      add(place(door), BST.door, seed, base, top, fp)
+      // Three steps up to the sill, wider than the doorway.
+      for (let k = 0; k < 3; k++) {
+        const st = new THREE.BoxGeometry(ow + 1.6 - k * 0.3, (sill * (3 - k)) / 3, 0.42)
+        st.translate(0, (sill * (3 - k)) / 6, depth + 0.21 + (2 - k) * 0.42)
+        add(place(st), BST.trim, seed, base, top, fp)
+      }
+    }
+
     DATA.buildings.forEach((b, i) => {
       const base = WORLD.bases[i]
       const s = STYLE[WORLD.styles[i]]
@@ -897,6 +1079,7 @@ export class AnamFlight {
         const co = offsetPoly(P, 0.32)
         add(prism(co, top - 0.55, top - 0.1), BST.trim, seed, base, top, co)
       }
+      if (stone && b.c && b.h >= 8) entrance(P, base, top, seed, s === STYLE.g)
       if (s === STYLE.g) {
         // Slate roof: hipped over simple blocks, mansard over wings and courts.
         const rh = Math.min(7.5, o.W * 0.38)
@@ -984,7 +1167,17 @@ export class AnamFlight {
     const F = this.wallF
     const nearWall = (x, z) => Math.max(0, 1 - F.dist(x, z) / 8)
     const cost = (ax, az, bx, bz) => 1 + 4 * Math.max(nearWall(ax, az), nearWall(bx, bz), nearWall((ax + bx) / 2, (az + bz) / 2))
-    const pts = roadTour(WORLD.tour, DATA.paths, cost).map(([x, z]) => new THREE.Vector3(x, 0, z))
+    // Tour waypoints that sit against a wall move out into open ground, so
+    // the leg passes a landmark at a distance instead of brushing it.
+    const tour = WORLD.tour.map(([x, z, ...rest]) => {
+      for (let it = 0; it < 30 && F.dist(x, z) < 16; it++) {
+        const [gx, gz] = F.grad(x, z)
+        x += gx
+        z += gz
+      }
+      return [x, z, ...rest]
+    })
+    const pts = roadTour(tour, DATA.paths, cost).map(([x, z]) => new THREE.Vector3(x, 0, z))
     this.route = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5)
 
     const hallOf = (name) => {
@@ -1156,6 +1349,25 @@ export class AnamFlight {
     this.onExitFree?.()
   }
 
+  // Slow device: step the render resolution down (and back up when there is
+  // headroom), judged over two seconds of frames.
+  #adapt(dt) {
+    const A = (this.adaptive ??= { t: 0, n: 0, sum: 0, scale: 1 })
+    A.t += dt
+    A.n++
+    A.sum += dt
+    if (A.t < 2) return
+    const avg = A.sum / A.n
+    A.t = A.n = A.sum = 0
+    const next = avg > 1 / 40 ? Math.max(0.55, A.scale - 0.15) : avg < 1 / 57 ? Math.min(1, A.scale + 0.1) : A.scale
+    if (next === A.scale) return
+    A.scale = next
+    const pr = Math.min(devicePixelRatio, MOBILE ? 1.25 : 1.6) * next
+    this.renderer.setPixelRatio(pr)
+    this.composer.setPixelRatio(pr)
+    this.resize()
+  }
+
   resize() {
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
@@ -1234,7 +1446,7 @@ export class AnamFlight {
         const road = Math.atan2(look.x - pos.x, look.z - pos.z)
         let off = Math.atan2(at.x - pos.x, at.z - pos.z) - road
         off = Math.atan2(Math.sin(off), Math.cos(off))
-        const yaw = road + THREE.MathUtils.clamp(off, -0.25, 0.25) * w
+        const yaw = road + THREE.MathUtils.clamp(off, -0.15, 0.15) * w
         const r = Math.hypot(look.x - pos.x, look.z - pos.z)
         pos.y += w * 4
         look.set(pos.x + Math.sin(yaw) * r, look.y + w * 3, pos.z + Math.cos(yaw) * r)
@@ -1359,6 +1571,7 @@ export class AnamFlight {
       if (t.box) t.box.material.opacity = t.near * 0.9
     }
     this.bloom.strength = 0.25 + NIGHT.value * 0.55
+    this.#adapt(dt)
     this.composer.render()
   }
 

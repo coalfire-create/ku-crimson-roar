@@ -23,7 +23,7 @@ const TAU = Math.PI * 2
 
 export class TigerGait {
   // root: the loaded gltf.scene; lateral: the body's side axis in world space.
-  constructor(root, { lateral = new THREE.Vector3(1, 0, 0), up = new THREE.Vector3(0, 1, 0) } = {}) {
+  constructor(root, { lateral = new THREE.Vector3(1, 0, 0), up = new THREE.Vector3(0, 1, 0), forward = new THREE.Vector3(0, 0, 1) } = {}) {
     this.bones = {}
     root.updateMatrixWorld(true)
     root.traverse((o) => {
@@ -51,6 +51,16 @@ export class TigerGait {
       b.parent.getWorldQuaternion(q)
       return up.clone().applyQuaternion(q.clone().invert()).normalize()
     })
+    // Scapula slide: the front legs' hip joints move along the body.
+    this.scap = {}
+    for (const leg of Object.values(LEGS)) {
+      if (!leg.front) continue
+      const b = this.bones[leg.bones[0]]
+      if (!b) continue
+      b.parent.getWorldQuaternion(q)
+      const fwd = forward.clone().applyQuaternion(q.clone().invert()).normalize()
+      this.scap[leg.bones[0]] = { b, rest: b.position.clone(), fwd, amp: b.position.length() * 0.12 }
+    }
     this.rootBone = this.bones['c_root_01']
     this.rootRest = this.rootBone?.position.clone()
     this.rootRestQ = this.rootBone?.quaternion.clone()
@@ -104,10 +114,21 @@ export class TigerGait {
       const swing = Math.max(0, Math.sin((p + 0.25) * TAU))
       const [hip, knee, ankle, ball] = leg.bones
       if (leg.front) {
-        this.#turn(hip, s * 0.75 * k)
-        this.#turn(knee, -swing * 1.2 * k)
-        this.#turn(ankle, swing * 0.9 * k)
-        this.#turn(ball, -swing * 0.5 * k)
+        // Shoulder: a long reach forward and a full push back; the scapula
+        // slides with it. Elbow folds high under the chest in the swing, the
+        // wrist flicks the paw back and then opens to land flat.
+        const reach = Math.sin((p + 0.08) * TAU)
+        const flick = Math.max(0, Math.sin((p + 0.12) * TAU)) ** 1.5
+        const land = Math.max(0, Math.sin((p - 0.15) * TAU))
+        this.#turn(hip, reach * 0.95 * k)
+        this.#turn(knee, (-swing * 1.65 + land * 0.15) * k)
+        this.#turn(ankle, (flick * 1.45 - land * 0.25) * k)
+        this.#turn(ball, (-flick * 0.8 + land * 0.2) * k)
+        const sc = this.scap[leg.bones[0]]
+        if (sc) {
+          sc.b.position.copy(sc.rest)
+          sc.b.position.addScaledVector(sc.fwd, reach * sc.amp * k * this.mix)
+        }
       } else {
         this.#turn(hip, -s * 0.7 * k)
         this.#turn(knee, swing * 1.1 * k)

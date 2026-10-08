@@ -49,8 +49,9 @@ export const WALLTEX = {
 }
 
 // Building styles (aB.x). 0-5 are facades from the map data; 6-8 are trim
-// pieces built by the geometry: dressed stone bands, metal coping, slate roofs.
-export const STYLE = { c: 0, g: 1, m: 2, h: 3, d: 4, t: 5, trim: 6, coping: 7, slate: 8 }
+// pieces built by the geometry: dressed stone bands, metal coping, slate roofs,
+// and the oak doors of the hall entrances.
+export const STYLE = { c: 0, g: 1, m: 2, h: 3, d: 4, t: 5, trim: 6, coping: 7, slate: 8, door: 9 }
 
 // Facade shader. Walls carry uv = (metres along this wall, this wall's length)
 // so window bays can be centred on each wall, with solid piers at the corners.
@@ -101,7 +102,12 @@ const buildingChunks = {
     void styleOf(float s, float seed, out vec4 g, out vec3 wall, out float fw){
       fw = 0.07;
       if (s < 0.5)      { g = vec4(3.4, 3.9, 1.7, 2.3); wall = vec3(0.62, 0.6, 0.55); fw = 0.16; }   // dressed granite
-      else if (s < 1.5) { g = vec4(3.2, 4.2, 1.35, 2.55); wall = vec3(0.6, 0.57, 0.52); fw = 0.2; }  // KU gothic, rough-faced granite
+      else if (s < 1.5) {
+        // KU gothic, rough-faced granite: each hall quarried a little differently.
+        g = vec4(3.0 + fract(seed * 3.7) * 0.5, 4.0 + fract(seed * 5.3) * 0.4, 1.35, 2.55); fw = 0.2;
+        float k = fract(seed * 7.13);
+        wall = k < 0.4 ? vec3(0.6, 0.57, 0.52) : k < 0.7 ? vec3(0.68, 0.62, 0.52) : k < 0.88 ? vec3(0.47, 0.46, 0.44) : vec3(0.64, 0.6, 0.57);
+      }
       else if (s < 2.5) { g = vec4(1.5, 4.0, 1.42, 3.0); wall = vec3(0.32, 0.34, 0.36); }   // curtain wall
       else if (s < 3.5) { g = vec4(3.0, 3.8, 2.8, 1.7); wall = vec3(0.8, 0.8, 0.78); }  // hospital ribbon
       else if (s < 4.5) { g = vec4(2.7, 3.0, 1.3, 1.35); wall = vec3(0.72, 0.64, 0.54); }  // dorm
@@ -121,7 +127,13 @@ const buildingChunks = {
     vec2 nUv = vec2(0.0);
     vec3 glassRefl = vec3(0.0);
     vec3 wall;
-    if (bStyle > 7.5) {
+    if (bStyle > 8.5) {
+      // Oak door: vertical boards, darkened with age, and an iron strap or two.
+      float bd = smoothstep(0.0, 0.04, abs(fract(vUv2.x / 0.18) - 0.5) - 0.42);
+      wall = vec3(0.075, 0.042, 0.025) * (0.8 + 0.25 * vnoise(vec2(vUv2.x * 9.0, hgt * 0.6))) * (1.0 - 0.35 * bd);
+      wall *= 1.0 - 0.6 * step(abs(fract((hgt - 0.5) / 1.3) - 0.5), 0.03);
+      rough = 0.7;
+    } else if (bStyle > 7.5) {
       // Slate roof: uv in metres along the eave / up the slope.
       vec2 ruv = vUv2 / 3.0;
       wall = texture2D(uSlate, ruv).rgb * vec3(0.78, 0.82, 0.86);
@@ -141,8 +153,10 @@ const buildingChunks = {
       vec2 tuv = vec2(along, hgt) + bSeed * 17.0;
       // Masonry: rough granite on the gothic halls, dressed ashlar elsewhere in stone.
       if (bStyle > 0.5 && bStyle < 1.5) {
-        wall *= detail(uStone, tuv / 3.0, 0.62);
-        nTex = texture2D(uStoneN, tuv / 3.0).rgb; nUv = tuv / 3.0; nStr = 1.3;
+        float sc = 2.6 + fract(bSeed * 11.7) * 1.0;
+        vec2 suv = tuv / sc + vec2(fract(bSeed * 3.1), fract(bSeed * 8.9));
+        wall *= detail(uStone, suv, 0.5 + fract(bSeed * 4.3) * 0.25);
+        nTex = texture2D(uStoneN, suv).rgb; nUv = suv; nStr = 1.1 + fract(bSeed * 6.1) * 0.5;
       } else if (bStyle < 0.5 || (bStyle > 5.5 && bStyle < 6.5)) {
         wall *= detail(uAsh, tuv / 2.0, 0.75);
         nTex = texture2D(uAshN, tuv / 2.0).rgb; nUv = tuv / 2.0; nStr = 0.9;
@@ -154,8 +168,11 @@ const buildingChunks = {
         nTex = texture2D(uConcN, tuv / 2.7).rgb; nUv = tuv / 2.7; nStr = 0.6;
       }
       // Large-scale weathering: patchy tone, darker at the foot, rain streaks.
-      wall *= 0.93 + 0.12 * vnoise(vec2(along * 0.11, hgt * 0.07) + bSeed * 50.0);
-      wall *= 0.82 + 0.18 * smoothstep(0.0, 2.5, hgt);
+      float age = 0.6 + fract(bSeed * 9.7) * 0.8; // how weathered this building is
+      wall *= 1.0 - age * 0.07 + age * 0.12 * vnoise(vec2(along * 0.11, hgt * 0.07) + bSeed * 50.0);
+      wall *= 1.0 - age * 0.18 * (1.0 - smoothstep(0.0, 2.5, hgt));
+      // Soot and moss creeping up from the ground on the oldest stone.
+      wall *= 1.0 - stone * age * 0.12 * smoothstep(4.0, 0.0, hgt) * vnoise(vec2(along * 0.6, hgt * 0.9) + bSeed * 13.0);
       float H = bTop - bBase;
       wall *= 1.0 - 0.18 * smoothstep(0.6, 0.0, H - hgt) * step(hgt, H + 0.01);
 
@@ -174,8 +191,25 @@ const buildingChunks = {
         vec2 hw = g.zw * 0.5;
         vec2 dd = abs(cell) - hw;
         float on = inBays * floorsOk;
-        float inside = on * step(max(dd.x, dd.y), 0.0);
-        float frame = on * (1.0 - inside) * step(max(dd.x, dd.y), fw);
+        float sd = max(dd.x, dd.y);
+        float gothic = step(0.5, bStyle) * step(bStyle, 1.5);
+        float arched = gothic * step(fl, 0.5);
+        if (arched > 0.5) {
+          // Pointed (equilateral) arch head on the ground floor: two circles of
+          // radius = window width, springing at y0 so the apex meets the top.
+          float y0 = hw.y - hw.x * 1.732;
+          if (cell.y > y0) {
+            float R = 2.0 * hw.x;
+            float a = max(length(cell - vec2(-hw.x, y0)), length(cell - vec2(hw.x, y0))) - R;
+            sd = max(a, abs(cell.x) - hw.x);
+          }
+        }
+        float inside = on * step(sd, 0.0);
+        float frame = on * (1.0 - inside) * step(sd, fw);
+        // Upper floors on stone halls: a projecting stone lintel over each window.
+        float lintel = on * stone * (1.0 - arched) * step(abs(cell.x), hw.x + fw + 0.22) * step(hw.y + fw, cell.y) * step(cell.y, hw.y + fw + 0.38);
+        // A hood-mould over the arches.
+        lintel += on * arched * (1.0 - inside) * step(sd, fw + 0.14) * step(fw, sd) * step(hw.y - hw.x * 1.732, cell.y);
         float sill = on * step(abs(cell.x), hw.x + fw + 0.08) * step(-hw.y - fw - 0.14, cell.y) * step(cell.y, -hw.y - fw + 0.01);
         // Spandrel bands between floors on the modern blocks.
         if (bStyle > 1.5) {
@@ -186,6 +220,21 @@ const buildingChunks = {
         float streak = on * step(abs(cell.x), hw.x) * smoothstep(-hw.y - 1.6, -hw.y - 0.2, cell.y) * step(cell.y, -hw.y - fw) * (0.5 + 0.5 * vnoise(vec2(cell.x * 6.0 + bay, fl)));
         wall *= 1.0 - 0.12 * streak;
         wall = mix(wall, wall * 1.18 + 0.02, sill * stone);
+        wall = mix(wall, wall * 1.22 + 0.03, min(lintel, 1.0));
+        if (lintel > 0.0) nStr *= 0.25;
+        // Ordinary blocks: about half have balconies, a slab edge and a railing
+        // panel under every window row; the rest keep a painted band.
+        if (bStyle > 4.5 && bStyle < 5.5) {
+          float fy = fract((hgt - 0.6) / g.y) * g.y;
+          float bal = step(0.5, fract(bSeed * 13.3)) * inBays * floorsOk * step(1.0, fl);
+          float slabE = step(fy, 0.18);
+          float rail = step(0.18, fy) * step(fy, 1.05) * (1.0 - inside);
+          vec3 railC = fract(bSeed * 5.9) < 0.5 ? vec3(0.78, 0.78, 0.76) : vec3(0.2, 0.22, 0.23);
+          wall = mix(wall, wall * 1.25 + 0.04, bal * slabE);
+          wall = mix(wall, railC * (0.9 + 0.1 * step(0.5, fract(lx / 0.12))), bal * rail * 0.85);
+          float band = (1.0 - step(0.5, fract(bSeed * 13.3))) * step(0.6, fract(bSeed * 2.3)) * step(fy, 0.35) * floorsOk;
+          wall = mix(wall, wall * vec3(0.92, 0.86, 0.8), band);
+        }
         wall = mix(wall, mix(wall * 1.12, vec3(0.06, 0.06, 0.065), 1.0 - stone), frame);
         if (frame + sill > 0.0) nStr *= 0.3;
         if (inside > 0.5) {

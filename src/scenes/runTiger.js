@@ -24,7 +24,22 @@ function bengal(material, box, { rim = 0.9, shell = null } = {}) {
       .replace('#include <common>', '#include <common>\nvarying vec3 vBind;\nvarying vec3 vObjN;\nuniform vec3 uBMin, uBSize;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBind = (position - uBMin) / uBSize;\nvObjN = normalize(objectNormal);')
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBind;\nvarying vec3 vObjN;\nuniform float uRim;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBind;\nvarying vec3 vObjN;\nuniform float uRim;\nfloat tgHead;')
+      // Lights from behind the tiger only graze the head's outline; inside it
+      // (the ruff's fur cards, under the jaw) the head would shade them.
+      .replace(
+        '#include <lights_physical_pars_fragment>',
+        `#include <lights_physical_pars_fragment>
+        void RE_Direct_Tiger(const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight) {
+          IncidentLight l = directLight;
+          float back = smoothstep(0.05, -0.5, dot(l.direction, geometryViewDir));
+          float inner = smoothstep(0.12, 0.4, dot(geometryNormal, geometryViewDir));
+          l.color *= 1.0 - 0.88 * tgHead * back * inner;
+          RE_Direct_Physical(l, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight);
+        }
+        #undef RE_Direct
+        #define RE_Direct RE_Direct_Tiger`,
+      )
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
@@ -61,6 +76,7 @@ function bengal(material, box, { rim = 0.9, shell = null } = {}) {
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
         float tgFold;
+        tgHead = smoothstep(0.72, 0.8, vBind.z);
         {
           // The normal map has hard edges along its UV island borders (around
           // the head, under the jaw): drop tilts that stray far from the surface.
@@ -135,6 +151,17 @@ function bengal(material, box, { rim = 0.9, shell = null } = {}) {
             // No shells over the bare face (eyes, nose, lips).
             if (vFur < 0.4 || uShell > h || dot(f, f) > r * r || (px > 1.6 && uShell > 0.4)) discard;
             diffuseColor.rgb *= mix(0.62, 1.15, uShell);
+          }`,
+        )
+        // Keep the stripes: the root's stripe mask carries up the strand, so
+        // the coat recolour below cannot wash it out toward orange.
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          {
+            float sl = dot(texture2D(map, vMapUv).rgb, vec3(0.333));
+            float stripe = smoothstep(0.42, 0.18, sl);
+            diffuseColor.rgb *= mix(1.0, 0.18, stripe);
           }`,
         )
     }
