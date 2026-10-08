@@ -10,7 +10,7 @@ import { TigerGait } from './tigerGait.js'
 // tiger: orange coat, cream belly, throat and muzzle, stripes kept.
 // Model: "White Tiger (rigged animated)" by MotionStreamStudios, CC BY 4.0.
 
-const SCALE = 0.11 // model is in centimetres; ~23 m long, a guardian tiger that reads from the air
+const SCALE = 0.045 // model is in centimetres; ~9 m long, large but still fits the roads
 
 function bengal(material, box) {
   material.onBeforeCompile = (sh) => {
@@ -81,7 +81,7 @@ export class RunTiger {
   }
 
   // pos: ground point; dir: heading on the ground plane; speed: m/s of the flight.
-  update(dt, pos, dir, speed) {
+  update(dt, pos, dir, speed, roar = 0) {
     if (!this.ready) return
     this.group.visible = true
     this.speed += (THREE.MathUtils.clamp(speed / 45, 0, 1) - this.speed) * Math.min(1, dt * 2.5)
@@ -94,5 +94,6 @@ export class RunTiger {
     const run = THREE.MathUtils.smoothstep(this.speed, 0.08, 0.35)
     this.gait.mix = run
     if (run > 0.001) this.gait.update(dt, THREE.MathUtils.lerp(0.45, 1, this.speed))
+    this.gait.roar(roar)
   }
 }

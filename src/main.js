@@ -205,6 +205,14 @@ async function boot() {
     const heart = new Heart(document.getElementById('cvHeart'))
     const aurora = new ShaderCanvas(document.getElementById('cvAurora'), AURORA, { maxDpr: 1, uniforms: { uEnergy: 0, uBeat: 0 } })
     const flight = new AnamFlight(document.getElementById('cvFlight'))
+    // The campus tiger's roar: the growl and a jolt through the frame.
+    flight.onRoar = () => {
+      try {
+        roarSound()
+      } catch {}
+      const st = document.querySelector('#frontier .scene__sticky')
+      gsap.fromTo(st, { x: -12, y: 6 }, { x: 0, y: 0, duration: 0.7, ease: 'elastic.out(1, 0.25)' })
+    }
     const gate = new Gate(document.getElementById('cvGate'))
     const dawn = new ShaderCanvas(document.getElementById('cvDawn'), DAWN, { maxDpr: 1, uniforms: { uOpen: 0 } })
     if (import.meta.env.DEV) Object.assign(window, { __flight: flight, __fortress: fortress, __heart: heart, __gate: gate })

@@ -31,6 +31,8 @@ const T = WORLD.terrain
 const X1 = T.x0 + (T.w - 1) * T.step
 const Z1 = T.z0 + (T.h - 1) * T.step
 const MOBILE = innerWidth < 760
+// Scroll position (0..1 of the tour) where the tiger stops roaring and runs.
+const TIGER_RUN = 0.03
 const SUN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 11), THREE.MathUtils.degToRad(235))
 // 0 = golden hour, 1 = blue hour with the windows lit; the tour runs from one
 // to the other.
@@ -187,6 +189,115 @@ function hipRoof(L, W, rh) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   g.computeVertexNormals()
   return g
+}
+
+
+// Shortest paths over the road/footpath network between consecutive tour
+// waypoints, resampled every few metres and lightly smoothed.
+function roadTour(tour, paths) {
+  const key = (x, z) => `${Math.round(x * 2)},${Math.round(z * 2)}`
+  const nodes = new Map()
+  const node = (x, z) => {
+    const k = key(x, z)
+    let n = nodes.get(k)
+    if (!n) nodes.set(k, (n = { x, z, edges: [] }))
+    return n
+  }
+  for (const w of paths) {
+    if (w.k !== 'r' && w.k !== 'f' && w.k !== 'p') continue
+    for (let i = 0; i < w.p.length - 1; i++) {
+      const a = node(...w.p[i])
+      const b = node(...w.p[i + 1])
+      const d = Math.hypot(a.x - b.x, a.z - b.z) * (w.k === 'f' ? 1.15 : 1) // prefer roads a little
+      a.edges.push([b, d])
+      b.edges.push([a, d])
+    }
+  }
+  const all = [...nodes.values()]
+  const nearest = (x, z) => all.reduce((best, n) => ((n.x - x) ** 2 + (n.z - z) ** 2 < (best.x - x) ** 2 + (best.z - z) ** 2 ? n : best), all[0])
+  const shortest = (from, to) => {
+    const dist = new Map([[from, 0]])
+    const prev = new Map()
+    // Binary min-heap of [distance, node].
+    const heap = [[0, from]]
+    const push = (e) => {
+      heap.push(e)
+      let i = heap.length - 1
+      while (i > 0) {
+        const p = (i - 1) >> 1
+        if (heap[p][0] <= heap[i][0]) break
+        ;[heap[p], heap[i]] = [heap[i], heap[p]]
+        i = p
+      }
+    }
+    const pop = () => {
+      const top = heap[0]
+      const last = heap.pop()
+      if (heap.length) {
+        heap[0] = last
+        let i = 0
+        for (;;) {
+          const l = i * 2 + 1
+          const r = l + 1
+          let m = i
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r
+          if (m === i) break
+          ;[heap[m], heap[i]] = [heap[i], heap[m]]
+          i = m
+        }
+      }
+      return top
+    }
+    const done = new Set()
+    while (heap.length) {
+      const [d, n] = pop()
+      if (done.has(n)) continue
+      done.add(n)
+      if (n === to) break
+      for (const [m, w] of n.edges) {
+        const nd = d + w
+        if (nd < (dist.get(m) ?? Infinity)) (dist.set(m, nd), prev.set(m, n), push([nd, m]))
+      }
+    }
+    if (!prev.has(to) && from !== to) return null
+    const out = [to]
+    while (out[0] !== from) out.unshift(prev.get(out[0]))
+    return out
+  }
+  let line = []
+  for (let i = 0; i < tour.length - 1; i++) {
+    const a = nearest(tour[i][0], tour[i][1])
+    const b = nearest(tour[i + 1][0], tour[i + 1][1])
+    const leg = shortest(a, b) ?? [a, b]
+    for (const n of leg) {
+      const last = line[line.length - 1]
+      if (!last || last[0] !== n.x || last[1] !== n.z) line.push([n.x, n.z])
+    }
+  }
+  // Resample every 6 m, then a light moving average to round the corners.
+  const res = [line[0]]
+  let carry = 0
+  for (let i = 1; i < line.length; i++) {
+    const [ax, az] = line[i - 1]
+    const [bx, bz] = line[i]
+    const L = Math.hypot(bx - ax, bz - az)
+    let t = 6 - carry
+    while (t <= L) (res.push([ax + ((bx - ax) * t) / L, az + ((bz - az) * t) / L]), (t += 6))
+    carry = L - (t - 6)
+  }
+  res.push(line[line.length - 1])
+  const smooth = res.map((p, i) => {
+    let x = 0, z = 0, n = 0
+    for (let k = -2; k <= 2; k++) {
+      const q = res[Math.min(res.length - 1, Math.max(0, i + k))]
+      x += q[0]
+      z += q[1]
+      n++
+    }
+    return [x / n, z / n]
+  })
+  return smooth
 }
 
 export class AnamFlight {
@@ -692,8 +803,10 @@ export class AnamFlight {
   }
 
   #buildRoute() {
-    // Camera path: a loop over the whole campus through its landmarks.
-    const pts = WORLD.tour.map(([x, z]) => new THREE.Vector3(x, 0, z))
+    // The tour follows real roads and footpaths: each leg between landmarks
+    // is the shortest way along the OSM network, so the tiger (and the trail
+    // and camera above it) never cut through a building.
+    const pts = roadTour(WORLD.tour, DATA.paths).map(([x, z]) => new THREE.Vector3(x, 0, z))
     this.route = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5)
 
     const hallOf = (name) => {
@@ -788,10 +901,9 @@ export class AnamFlight {
     this.scene.add(g)
   }
 
-  // Tiger pawprints along the tour, left and right in turn, lighting up just
-  // ahead of the camera and glowing hottest at the head of the trail.
+  // Tiger pawprints along the tour, left and right in turn, left behind by
+  // the running tiger and glowing hottest just behind it.
   #buildPaws() {
-    const P = this.path
     const prints = []
     const L = this.route.getLength()
     const n = Math.floor(L / 13)
@@ -802,14 +914,8 @@ export class AnamFlight {
       const side = k % 2 ? 3 : -3
       const x = p.x - d.z * side
       const z = p.z + d.x * side
-      // Where the camera is looking when it passes this print.
-      let bi = 0
-      let bd = Infinity
-      for (let i = 0; i < P.N; i++) {
-        const q = Math.hypot(P.lx[i] - x, P.lz[i] - z)
-        if (q < bd) (bd = q), (bi = i)
-      }
-      prints.push({ x, z, a: Math.atan2(d.x, d.z), u: bi / (P.N - 1) })
+      // Its place on the route: it lights once the tiger has run past it.
+      prints.push({ x, z, a: Math.atan2(d.x, d.z), u: t })
     }
     // One paw: a heel pad and four toes, 3 m long, in the XZ plane.
     const parts = [[0, -0.35, 0.62, 0.5]]
@@ -952,6 +1058,23 @@ export class AnamFlight {
     this.look ??= new THREE.Vector3()
 
     let pose = this.#tourPose(this.u)
+    if (this.route && !this.free && this.u < 0.12) {
+      const { p, d } = this.#tigerAt(this.u)
+      // Beside it and a little ahead, so the roar is seen three-quarter on
+      // and the tiger crosses the frame as it sets off.
+      const T = this.#tigerAt(0).p
+      const d0 = this.route.getTangentAt(0.001).setY(0).normalize()
+      const s0 = new THREE.Vector3(-d0.z, 0, d0.x)
+      const close = {
+        pos: T.clone().addScaledVector(d0, 7).addScaledVector(s0, 15).setY(T.y + 3.8),
+        look: p.clone().addScaledVector(d, 2).setY(p.y + 2.2),
+      }
+      // The camera climbs away first; its eyes stay on the running tiger a
+      // little longer before turning to the road ahead.
+      const k = THREE.MathUtils.smootherstep(this.u, 0.032, 0.08)
+      const kl = THREE.MathUtils.smootherstep(this.u, 0.045, 0.1)
+      pose = { pos: close.pos.lerp(pose.pos, k), look: close.look.lerp(pose.look, kl) }
+    }
     if (this.free && Math.abs(this.progress - this.free.progress) > 0.004) this.exitFree()
     if (this.free) {
       const f = this.free
@@ -1026,20 +1149,32 @@ export class AnamFlight {
     this.composer.render()
   }
 
-  // Keep the tiger just ahead of the camera on the route, feet on the ground.
+  // The opening: the camera waits beside the tiger at the main gate; the
+  // first scroll makes it roar, then it bolts up the road and the camera
+  // follows, climbing into the flight. After that it leads the way just
+  // ahead of the camera, on its own pawprint trail.
+  #tigerAt(u) {
+    const T0 = 0.0005 // at the very start: no trail behind it yet
+    const t = u < TIGER_RUN ? T0 : Math.min(u + 0.01, T0 + (u - TIGER_RUN) * 1.3)
+    const p = this.route.getPointAt(Math.min(0.999, t))
+    const d = this.route.getTangentAt(Math.min(0.999, t)).setY(0).normalize()
+    p.y = this.groundAt(p.x, p.z)
+    return { t, p, d }
+  }
+
   #updateTiger(dt) {
     if (!this.route || this.free) return this.tiger.update(dt, this.tiger.group.position, this.tigerDir ?? new THREE.Vector3(0, 0, 1), 0)
-    // Leading the way just ahead of the camera, on its own trail.
-    const t = Math.min(0.999, this.u + 0.01)
-    const p = this.route.getPointAt(t)
-    const d = this.route.getTangentAt(t).setY(0).normalize()
-    p.y = this.groundAt(p.x, p.z)
+    const { t, p, d } = this.#tigerAt(this.u)
     this.tigerDir = d
+    const roar = THREE.MathUtils.smoothstep(this.u, 0.006, 0.012) * (1 - THREE.MathUtils.smoothstep(this.u, 0.022, TIGER_RUN))
+    // The roar sounds once each time the scroll carries past it.
+    if (roar > 0.6 && !this.roared) ((this.roared = true), this.onRoar?.())
+    if (this.u < 0.004) this.roared = false
     // Running speed follows how fast the route is being covered.
     const pace = this.lastTigerT === undefined ? 0 : (Math.abs(t - this.lastTigerT) * this.route.getLength()) / Math.max(dt, 1e-3)
     this.lastTigerT = t
     this.tigerPace = (this.tigerPace ?? 0) + (pace - (this.tigerPace ?? 0)) * Math.min(1, dt * 3)
-    this.tiger.update(dt, p, d, this.tigerPace)
+    this.tiger.update(dt, p, d, this.tigerPace, roar)
   }
 
   #updatePaws(dt) {
@@ -1047,6 +1182,6 @@ export class AnamFlight {
     if (!this.paws) return
     const m = this.paws.material.uniforms
     m.uTime.value = this.time
-    m.uHead.value = this.free ? 1 : Math.min(1, this.u + 0.012)
+    m.uHead.value = this.free ? 1 : this.route ? this.#tigerAt(this.u).t : 0
   }
 }

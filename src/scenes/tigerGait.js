@@ -16,6 +16,7 @@ const LEGS = {
 }
 const SPINE = ['c_spine_00', 'c_spine_01', 'c_spine_02', 'c_spine_03', 'c_chest_00']
 const NECK = ['c_neck_00', 'c_neck_01', 'c_head_00']
+const ROAR = ['c_jaw_00', 'c_neck_00', 'c_neck_01', 'c_head_00', 'c_chest_00', 'l_femurRibbonFront_00', 'r_femurRibbonFront_00', 'l_ear_00', 'r_ear_00']
 const TAIL = ['c_tail_00', 'c_tail_01', 'c_tail_02', 'c_tail_03', 'c_tail_04', 'c_tail_05', 'c_tail_06', 'c_tail_07']
 
 const TAU = Math.PI * 2
@@ -43,6 +44,7 @@ export class TigerGait {
     SPINE.forEach((k) => prep(k, lateral))
     NECK.forEach((k) => prep(k, lateral))
     TAIL.forEach((k) => prep(k, lateral))
+    ROAR.forEach((k) => this.rig[k] || prep(k, lateral))
     this.tailYaw = TAIL.map((k) => {
       const b = this.bones[k]
       if (!b) return null
@@ -68,6 +70,24 @@ export class TigerGait {
     // Blend over whatever pose the bone already has (the idle clip).
     if (this.mix < 1) r.b.quaternion.slerp(q, this.mix)
     else r.b.quaternion.copy(q)
+  }
+
+  // A roar on top of the current pose: k 0..1. Jaw wide, head thrown up,
+  // chest out, front legs braced, ears flattened.
+  roar(k) {
+    if (k <= 0.001) return
+    const keep = this.mix
+    this.mix = k
+    const J = this.roarSigns ?? { jaw: 1, neck: -1 }
+    this.#turn('c_jaw_00', 0.78 * J.jaw)
+    this.#turn('c_neck_00', 0.26 * J.neck)
+    this.#turn('c_neck_01', 0.2 * J.neck)
+    this.#turn('c_head_00', 0.14 * J.neck)
+    this.#turn('c_chest_00', 0.1 * J.neck)
+    this.#turn('c_spine_03', 0.05 * J.neck)
+    this.#turn('l_femurRibbonFront_00', -0.22)
+    this.#turn('r_femurRibbonFront_00', -0.22)
+    this.mix = keep
   }
 
   // speed: 0 (standing) .. 1 (full gallop). dt in seconds.
