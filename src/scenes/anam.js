@@ -221,7 +221,7 @@ export class AnamFlight {
     // Bloom: lit windows and the pawprint trail glow as dusk falls.
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.5, 2.6)
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.28, 2.6)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
 
@@ -253,8 +253,9 @@ export class AnamFlight {
     const u = sky.material.uniforms
     u.turbidity.value = 7
     u.rayleigh.value = 2.2
-    u.mieCoefficient.value = 0.006
-    u.mieDirectionalG.value = 0.85
+    // Less forward scatter: the low sun no longer bleaches the frame.
+    u.mieCoefficient.value = 0.0012
+    u.mieDirectionalG.value = 0.6
     u.sunPosition.value.copy(SUN)
     this.sky = sky
     this.scene.add(sky)
@@ -577,7 +578,7 @@ export class AnamFlight {
     const u = this.sky.material.uniforms
     this.sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - THREE.MathUtils.lerp(11, 0.6, n)), THREE.MathUtils.degToRad(235 + n * 12))
     u.sunPosition.value.copy(this.sunDir)
-    u.rayleigh.value = 2.2 + n * 2.2
+    u.rayleigh.value = 1.9 + n * 2.2
     u.turbidity.value = 7 - n * 4
     // The light itself never drops below the horizon.
     this.lightDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - THREE.MathUtils.lerp(11, 4, n)), THREE.MathUtils.degToRad(235 + n * 12))

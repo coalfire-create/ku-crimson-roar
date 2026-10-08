@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { Crowd } from './crowd.js'
 
 // The Crimson Core: a faceted ruby heart beating in the dark. Every pump
 // (Space, click, tap) swells it, fires a ring of lava embers and a drum hit,
@@ -147,6 +148,9 @@ export class Heart {
     this.scene.add(this.embers)
     this.next = 0
 
+    // The crowd on the field below the heart.
+    this.crowd = new Crowd(this.scene, mobile)
+
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.5, 0.7)
@@ -193,6 +197,7 @@ export class Heart {
     this.beats++
     this.energy = Math.min(1, this.energy + 0.075)
     this.#drum()
+    this.crowd.pump(this.time)
     const n = 90 + Math.round(this.energy * 160)
     for (let k = 0; k < n; k++) {
       const i = this.next
@@ -214,8 +219,12 @@ export class Heart {
     this.renderer.setSize(w, h, false)
     this.composer.setSize(w, h)
     this.camera.aspect = w / h
-    this.camera.position.z = w / h < 0.8 ? 16 : 11
+    // Looking slightly down: the heart over a field of people.
+    const portrait = w / h < 0.8
+    this.camera.position.set(0, portrait ? -0.2 : -0.4, portrait ? 17 : 11.5)
+    this.camera.lookAt(0, portrait ? -0.3 : -0.5, 0)
     this.camera.updateProjectionMatrix()
+    this.crowd.setSize(170 * this.renderer.getPixelRatio() * (h / 900))
   }
 
   render(dt) {
@@ -248,6 +257,7 @@ export class Heart {
     }
     this.embers.geometry.attributes.position.needsUpdate = true
     this.embers.geometry.attributes.aLife.needsUpdate = true
+    this.crowd.update(this.time, this.energy)
     this.composer.render()
   }
 }
