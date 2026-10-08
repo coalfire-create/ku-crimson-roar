@@ -6,6 +6,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import DATA from '../data/campus.json'
+import { RunTiger } from './runTiger.js'
 import WORLD from '../data/world.json'
 
 // A flight over the whole Anam campus of Korea University, built only from
@@ -217,6 +218,9 @@ export class AnamFlight {
     this.#buildHalls()
     this.#buildStatue()
     this.#loadTerrain()
+
+    // The tiger itself, running at the head of its pawprint trail.
+    this.tiger = new RunTiger(this.scene)
 
     // Bloom: lit windows and the pawprint trail glow as dusk falls.
     this.composer = new EffectComposer(this.renderer)
@@ -1012,6 +1016,7 @@ export class AnamFlight {
     this.sun.position.copy(this.look).addScaledVector(this.lightDir, 900)
 
     this.#updatePaws(dt)
+    this.#updateTiger(dt)
     for (const t of this.targets) {
       const d = t.u - this.u
       t.near = this.free ? 0 : Math.max(0, d >= 0 ? 1 - d / 0.08 : 1 + d / 0.03)
@@ -1019,6 +1024,22 @@ export class AnamFlight {
     }
     this.bloom.strength = 0.25 + NIGHT.value * 0.55
     this.composer.render()
+  }
+
+  // Keep the tiger just ahead of the camera on the route, feet on the ground.
+  #updateTiger(dt) {
+    if (!this.route || this.free) return this.tiger.update(dt, this.tiger.group.position, this.tigerDir ?? new THREE.Vector3(0, 0, 1), 0)
+    // Leading the way just ahead of the camera, on its own trail.
+    const t = Math.min(0.999, this.u + 0.01)
+    const p = this.route.getPointAt(t)
+    const d = this.route.getTangentAt(t).setY(0).normalize()
+    p.y = this.groundAt(p.x, p.z)
+    this.tigerDir = d
+    // Running speed follows how fast the route is being covered.
+    const pace = this.lastTigerT === undefined ? 0 : (Math.abs(t - this.lastTigerT) * this.route.getLength()) / Math.max(dt, 1e-3)
+    this.lastTigerT = t
+    this.tigerPace = (this.tigerPace ?? 0) + (pace - (this.tigerPace ?? 0)) * Math.min(1, dt * 3)
+    this.tiger.update(dt, p, d, this.tigerPace)
   }
 
   #updatePaws(dt) {
