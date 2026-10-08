@@ -4,18 +4,21 @@ import Lenis from 'lenis'
 import { ShaderCanvas } from './shader-canvas.js'
 import { AURORA, DAWN } from './scenes/shaders.js'
 import { Tiger } from './scenes/tiger.js'
+import { INFO } from './data/info.js'
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
 const ease = (t) => t * t * (3 - 2 * t)
 const TIMELINE = [
   [1905, '보성전문학교 개교'],
+  [1932, '인촌 김성수, 학교 인수'],
   [1934, '안암 언덕에 본관 완공'],
-  [1946, '고려대학교로 새 출발'],
+  [1937, '석조 도서관 완공'],
+  [1946, '종합대학 고려대학교로'],
+  [1960, '4·18 고대생 의거'],
   [2005, '개교 100주년'],
   [2026, '그리고 지금, 당신의 차례'],
 ]
 const KIND = { c: '캠퍼스 건물', g: '석조 건물', m: '현대식 건물', h: '의료 시설', d: '기숙사' }
-const INFO = {}
 
 function splitChars(el) {
   el.setAttribute('aria-label', el.textContent)
@@ -386,6 +389,10 @@ async function boot() {
     const beatCount = document.getElementById('beatCount')
     const ipselenti = document.getElementById('ipselenti')
     if (touch) document.getElementById('prideHint').textContent = '화면을 탭해 심장을 뛰게 하세요'
+    if (touch) {
+      document.querySelector('.hint--fortress').lastChild.textContent = '흩어진 부품을 탭해 보세요'
+      document.querySelector('.hint--flight').lastChild.textContent = '타겟이나 건물 이름표를 탭해 보세요'
+    }
     heart.onPump = () => {
       beat = 1
       beatCount.textContent = heart.beats
@@ -446,7 +453,7 @@ async function boot() {
       g.globalAlpha = 1
     }
 
-    /* 백양로: lock-on reticles and cards. */
+    /* 호랑이길: lock-on reticles and cards. */
     const locks = document.getElementById('locks')
     const lockEls = flight.targets.map((t) => {
       const el = document.createElement('button')
@@ -502,7 +509,7 @@ async function boot() {
         el.style.pointerEvents = shown.has(i) ? 'auto' : 'none'
       })
     }
-    /* Building directory: pick any hall and the eagle flies over to circle it. */
+    /* Building directory: pick any hall and the camera flies over to circle it. */
     const dir = document.getElementById('dir')
     const dirList = document.getElementById('dirList')
     const dirSearch = document.getElementById('dirSearch')
@@ -545,8 +552,8 @@ async function boot() {
       const code = t.code || hall.code
       cardEls.Code.textContent = [info.kind || KIND[hall.style] || (t.key ? '랜드마크' : '캠퍼스 건물'), code ? `No. ${code}` : ''].filter(Boolean).join('  ·  ')
       cardEls.Name.textContent = t.name
-      cardEls.En.textContent = t.en || hall.en || 'Korea University · Anam Campus'
-      cardEls.Body.textContent = info.story || t.body || hall.body || '고려대학교 신촌캠퍼스의 건물이에요.'
+      cardEls.En.textContent = t.en || hall.en || info.en || 'Korea University · Anam Campus'
+      cardEls.Body.textContent = info.story || t.body || hall.body || '고려대학교 안암캠퍼스의 건물이에요.'
       const rows = [...(info.rows || [])]
       if ((t.lv || hall.lv) && !rows.some(([k]) => k === '층수')) rows.push(['층수', `지상 ${t.lv || hall.lv}층`])
       cardEls.Rows.innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')
@@ -640,7 +647,8 @@ async function boot() {
 
       if (scenes[1].on) {
         const p = fortress.progress
-        tlItems.forEach((li, n) => li.classList.toggle('is-on', p >= n * 0.19 && (n === tlItems.length - 1 || p < (n + 1) * 0.19)))
+        const step = 0.95 / tlItems.length
+        tlItems.forEach((li, n) => li.classList.toggle('is-on', p >= n * step && (n === tlItems.length - 1 || p < (n + 1) * step)))
         const h = fortress.hovered
         partTag.hidden = !h
         if (h) {

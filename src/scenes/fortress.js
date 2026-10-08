@@ -223,11 +223,14 @@ export class Fortress {
     this.pointer = new THREE.Vector2(9, 9)
     this.mouse = new THREE.Vector2()
     this.ray = new THREE.Raycaster()
-    canvas.addEventListener('pointermove', (e) => {
+    const aim = (e) => {
       const r = canvas.getBoundingClientRect()
       this.pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
-    })
-    canvas.addEventListener('pointerleave', () => this.pointer.set(9, 9))
+    }
+    canvas.addEventListener('pointermove', aim)
+    // A tap picks a part and keeps it picked until the next tap.
+    canvas.addEventListener('pointerdown', aim)
+    canvas.addEventListener('pointerleave', (e) => e.pointerType === 'mouse' && this.pointer.set(9, 9))
     addEventListener('pointermove', (e) => this.mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))
     this.resize()
     addEventListener('resize', () => this.resize())

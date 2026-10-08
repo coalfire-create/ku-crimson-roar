@@ -1051,7 +1051,7 @@ button.pill:not([class*='pill--']) {
   bottom: 48px;
   z-index: 2;
   display: flex;
-  gap: 22px;
+  gap: 18px;
   list-style: none;
   pointer-events: none;
 }
@@ -1059,7 +1059,7 @@ button.pill:not([class*='pill--']) {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-width: 150px;
+  max-width: 124px;
   opacity: 0.32;
   transition: opacity 0.5s, transform 0.5s var(--ease);
 }
@@ -1122,9 +1122,10 @@ button.pill:not([class*='pill--']) {
   z-index: 2;
 }
 @media (max-width: 760px) {
-  .timeline { gap: 12px; bottom: 90px; }
-  .timeline li { max-width: 70px; }
-  .timeline span { display: none; }
+  /* Eight years don't fit across a phone: show only the current one. */
+  .timeline { bottom: 90px; }
+  .timeline li { max-width: none; }
+  .timeline li:not(.is-on) { display: none; }
   .hint--fortress { left: var(--gutter); right: auto; bottom: 36px; }
 }
 
