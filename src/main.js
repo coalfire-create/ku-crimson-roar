@@ -3,7 +3,7 @@ import gsap from 'gsap'
 import Lenis from 'lenis'
 import { ShaderCanvas } from './shader-canvas.js'
 import { AURORA, DAWN } from './scenes/shaders.js'
-import { Tiger } from './scenes/tiger.js'
+import { Hero3D } from './scenes/hero3d.js'
 import { INFO } from './data/info.js'
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
@@ -104,10 +104,10 @@ async function boot() {
   addEventListener('resize', () => innerWidth !== viewW && ((viewW = innerWidth), (viewH = innerHeight)))
   const touch = matchMedia('(hover: none)').matches
 
-  /* Opening: the tiger, in embers. */
+  /* Opening: the real tiger, roaring in the dark. */
   const heroEl = document.getElementById('hero')
   const heroSticky = heroEl.querySelector('.scene__sticky')
-  const hero = new Tiger(document.getElementById('cvHero'))
+  const hero = new Hero3D(document.getElementById('cvHero'))
   if (import.meta.env.DEV) window.__tiger = hero
   const eyeState = { open: 0, intro: 0 }
   let blinkAt = 3
@@ -115,6 +115,13 @@ async function boot() {
   const roar = () => {
     blastT = 0
     hero.roar()
+    try {
+      roarSound()
+    } catch {}
+  }
+  // The first scroll wakes it too: the same growl and jolt.
+  hero.onRoar = () => {
+    blastT = 0
     try {
       roarSound()
     } catch {}

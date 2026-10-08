@@ -8,6 +8,11 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import DATA from '../data/campus.json'
 import { RunTiger } from './runTiger.js'
 import WORLD from '../data/world.json'
+// The main gate is a low stone arch, not a 16 m block.
+for (const b of DATA.buildings) if (b.n === '고려대학교 정문') b.h = Math.min(b.h, 7)
+import { loadAerial } from './aerial.js'
+import { buildTrees } from './trees.js'
+import { AER, AER_GLSL, NIGHT, buildingMaterial, STYLE as BST, offsetPoly, wallUV, slopeUV, tagB } from './materials.js'
 
 // A flight over the whole Anam campus of Korea University, built only from
 // free open data: OpenStreetMap footprints, land use and trees (© OSM
@@ -33,10 +38,11 @@ const Z1 = T.z0 + (T.h - 1) * T.step
 const MOBILE = innerWidth < 760
 // Scroll position (0..1 of the tour) where the tiger stops roaring and runs.
 const TIGER_RUN = 0.03
+const TOUR_END = 0.9 // the tiger reaches the end of the road; then the view rises
+const CHASE = { back: 16, up: 8, ahead: 38, look: 0.5, wall: 7.5 }
 const SUN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 11), THREE.MathUtils.degToRad(235))
 // 0 = golden hour, 1 = blue hour with the windows lit; the tour runs from one
 // to the other.
-const NIGHT = { value: 0 }
 const DUSK = {
   sun: [new THREE.Color('#ffc98f'), new THREE.Color('#ff7a45')],
   sky: [new THREE.Color('#d8b9a0'), new THREE.Color('#3a3260')],
@@ -47,108 +53,6 @@ const DUSK = {
 // Halls that carry a tower over the roof.
 const TOWERS = /^(본관|중앙도서관|인촌기념관)$/
 const STYLE = { c: 0, g: 1, m: 2, h: 3, d: 4, t: 5 }
-const buildingChunks = {
-  vertexPars: /* glsl */ `
-    attribute vec4 aB; // style, seed, base y, top y
-    varying vec4 vB;
-    varying vec3 vPos;
-    varying vec2 vUv2;
-    varying float vUp;
-  `,
-  vertex: /* glsl */ `
-    vB = aB;
-    vPos = (modelMatrix * vec4(position, 1.0)).xyz;
-    vUv2 = uv;
-    vUp = normal.y;
-  `,
-  fragmentPars: /* glsl */ `
-    uniform float uNight;
-    varying vec4 vB;
-    varying vec3 vPos;
-    varying vec2 vUv2;
-    varying float vUp;
-    float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453); }
-    float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-      float a = hash(vec3(i, 1.0)), b = hash(vec3(i + vec2(1,0), 1.0)), c = hash(vec3(i + vec2(0,1), 1.0)), d = hash(vec3(i + 1.0, 1.0));
-      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }
-    // Per style: bay width, floor height, window w, window h, wall colour, glass tint.
-    void styleOf(float s, float seed, out vec4 g, out vec3 wall, out vec3 glass){
-      if (s < 0.5)      { g = vec4(3.6, 3.8, 1.5, 2.2); wall = vec3(0.6, 0.58, 0.54); glass = vec3(0.14, 0.17, 0.21); }   // granite
-      else if (s < 1.5) { g = vec4(3.1, 4.2, 1.2, 2.3); wall = vec3(0.5, 0.46, 0.41); glass = vec3(0.1, 0.12, 0.15); }  // gothic rubble stone
-      else if (s < 2.5) { g = vec4(1.6, 4.0, 1.52, 3.7); wall = vec3(0.5, 0.54, 0.58); glass = vec3(0.16, 0.25, 0.33); }   // curtain wall
-      else if (s < 3.5) { g = vec4(3.0, 3.7, 2.7, 1.6); wall = vec3(0.78, 0.78, 0.76); glass = vec3(0.16, 0.22, 0.28); }  // hospital ribbon
-      else if (s < 4.5) { g = vec4(2.8, 3.0, 1.1, 1.3); wall = vec3(0.7, 0.62, 0.52); glass = vec3(0.15, 0.17, 0.19); }  // dorm
-      else {
-        g = vec4(3.2, 3.0, 1.3, 1.4);
-        float k = floor(seed * 5.0);
-        wall = k < 1.0 ? vec3(0.66, 0.63, 0.58) : k < 2.0 ? vec3(0.58, 0.49, 0.42) : k < 3.0 ? vec3(0.5, 0.31, 0.24) : k < 4.0 ? vec3(0.76, 0.75, 0.72) : vec3(0.46, 0.49, 0.52);
-        glass = vec3(0.16, 0.18, 0.2);
-      }
-    }
-  `,
-  color: /* glsl */ `
-    float bStyle = vB.x, bSeed = vB.y, bBase = vB.z, bTop = vB.w;
-    vec4 g; vec3 wall; vec3 glass;
-    styleOf(bStyle, bSeed, g, wall, glass);
-    float hgt = vPos.y - bBase;
-    float isWall = 1.0 - step(0.5, abs(vUp));
-    float winMask = 0.0;
-    float lit = 0.0;
-    if (isWall > 0.5) {
-      // Masonry courses and weathering.
-      float course = smoothstep(0.02, 0.0, abs(fract(hgt / 0.62) - 0.5) - 0.47);
-      wall *= 0.92 + 0.12 * vnoise(vec2(vUv2.x * 0.7, hgt * 1.3) + bSeed * 50.0) - course * 0.06 * step(bStyle, 1.5);
-      wall *= 0.9 + 0.1 * smoothstep(0.0, 3.0, hgt);
-      float fl = floor(hgt / g.y);
-      float bay = floor(vUv2.x / g.x);
-      vec2 cell = vec2(fract(vUv2.x / g.x) * g.x - g.x * 0.5, fract(hgt / g.y) * g.y - g.y * 0.45);
-      float inWin = step(abs(cell.x), g.z * 0.5) * step(abs(cell.y), g.w * 0.5);
-      // No windows in the parapet band; gothic halls get mullions.
-      inWin *= step(hgt, bTop - bBase - 0.9) * step(0.9, hgt);
-      if (bStyle > 0.5 && bStyle < 1.5) inWin *= step(0.07, abs(cell.x)) * step(0.07, abs(cell.y - 0.3));
-      winMask = inWin;
-      float r = hash(vec3(fl, bay, bSeed * 91.0));
-      lit = inWin * step(0.84 - uNight * 0.46, r);
-      // Glass mirrors the golden sky toward the top of each pane.
-      vec3 sky = mix(vec3(0.95, 0.72, 0.45), vec3(0.45, 0.6, 0.8), clamp(cell.y / g.w + 0.5, 0.0, 1.0));
-      vec3 glassCol = mix(glass, sky * (1.0 - uNight * 0.75), 0.28 + 0.2 * r);
-      wall = mix(wall, glassCol, inWin);
-    } else {
-      // Roofs: concrete with vents and tar joints.
-      float n = vnoise(vPos.xz * 0.35 + bSeed * 20.0);
-      wall = mix(vec3(0.42, 0.42, 0.41), vec3(0.52, 0.51, 0.49), n) * (0.9 + 0.1 * bSeed);
-      wall *= 1.0 - 0.15 * step(0.93, fract(vPos.x * 0.12)) * step(0.5, fract(vPos.z * 0.05));
-    }
-    diffuseColor.rgb = wall;
-  `,
-  roughness: /* glsl */ `
-    roughnessFactor = mix(0.85, 0.18, winMask);
-  `,
-  metalness: /* glsl */ `
-    metalnessFactor = mix(0.0, 0.55, winMask);
-  `,
-  emissive: /* glsl */ `
-    totalEmissiveRadiance += vec3(1.0, 0.72, 0.4) * lit * (0.9 + uNight * 2.6);
-  `,
-}
-
-function buildingMaterial() {
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 })
-  mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uNight = NIGHT
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\n' + buildingChunks.vertexPars)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + buildingChunks.vertex)
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + buildingChunks.fragmentPars)
-      .replace('#include <color_fragment>', '#include <color_fragment>\n' + buildingChunks.color)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + buildingChunks.roughness)
-      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n' + buildingChunks.metalness)
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + buildingChunks.emissive)
-  }
-  mat.customProgramCacheKey = () => 'ku-building'
-  return mat
-}
 
 // Oriented bounding rectangle of a footprint (for gothic roofs and towers).
 function obb(pts) {
@@ -194,7 +98,8 @@ function hipRoof(L, W, rh) {
 
 // Shortest paths over the road/footpath network between consecutive tour
 // waypoints, resampled every few metres and lightly smoothed.
-function roadTour(tour, paths) {
+// cost(ax, az, bx, bz): optional extra weight per edge (e.g. hugging a wall).
+function roadTour(tour, paths, cost = null) {
   const key = (x, z) => `${Math.round(x * 2)},${Math.round(z * 2)}`
   const nodes = new Map()
   const node = (x, z) => {
@@ -208,7 +113,7 @@ function roadTour(tour, paths) {
     for (let i = 0; i < w.p.length - 1; i++) {
       const a = node(...w.p[i])
       const b = node(...w.p[i + 1])
-      const d = Math.hypot(a.x - b.x, a.z - b.z) * (w.k === 'f' ? 1.15 : 1) // prefer roads a little
+      const d = Math.hypot(a.x - b.x, a.z - b.z) * (w.k === 'f' ? 1.6 : 1) * (cost ? cost(a.x, a.z, b.x, b.z) : 1) // prefer roads
       a.edges.push([b, d])
       b.edges.push([a, d])
     }
@@ -308,7 +213,7 @@ export class AnamFlight {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 0.6
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(58, 1, 2, 6000)
     this.progress = 0
@@ -324,14 +229,38 @@ export class AnamFlight {
     this.#buildSky()
     this.#buildGround()
     this.#buildBuildings()
-    this.#buildTrees()
     this.#buildRoute()
+    // No crowns over the tiger's road: the low camera would fly through them.
+    {
+      const C = 4
+      const cells = new Map()
+      const L = this.route.getLength()
+      for (let k = 0, n = Math.ceil(L / 2); k <= n; k++) {
+        const q = this.route.getPointAt(k / n)
+        const key = `${Math.floor(q.x / C)},${Math.floor(q.z / C)}`
+        if (!cells.has(key)) cells.set(key, [])
+        cells.get(key).push(q.x, q.z)
+      }
+      const clear = (x, z, s) => {
+        const r = 3.2 * s + 1.5
+        const R = Math.ceil(r / C)
+        const cx = Math.floor(x / C)
+        const cz = Math.floor(z / C)
+        for (let i = -R; i <= R; i++)
+          for (let j = -R; j <= R; j++) {
+            const pts = cells.get(`${cx + i},${cz + j}`)
+            if (pts) for (let k = 0; k < pts.length; k += 2) if (Math.hypot(pts[k] - x, pts[k + 1] - z) < r) return false
+          }
+        return true
+      }
+      this.trees = buildTrees(this.scene, MOBILE, clear)
+    }
     this.#buildHalls()
     this.#buildStatue()
     this.#loadTerrain()
 
     // The tiger itself, running at the head of its pawprint trail.
-    this.tiger = new RunTiger(this.scene)
+    this.tiger = new RunTiger(this.scene, undefined, { scale: 0.024 })
 
     // Bloom: lit windows and the pawprint trail glow as dusk falls.
     this.composer = new EffectComposer(this.renderer)
@@ -371,6 +300,8 @@ export class AnamFlight {
     // Less forward scatter: the low sun no longer bleaches the frame.
     u.mieCoefficient.value = 0.0012
     u.mieDirectionalG.value = 0.6
+    // A dim disc: at road level the sun sits in frame and would bleach it.
+    u.showSunDisc.value = 0.05
     u.sunPosition.value.copy(SUN)
     this.sky = sky
     this.scene.add(sky)
@@ -479,9 +410,70 @@ export class AnamFlight {
     const geo = new THREE.PlaneGeometry(W, D, Math.round(W / (10 * seg)), Math.round(D / (10 * seg)))
     geo.rotateX(-Math.PI / 2)
     geo.translate(T.x0 + W / 2, 0, T.z0 + D / 2)
-    this.ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }))
+    const gmat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 })
+    // Close-up detail under the aerial photo (Poly Haven, CC0): asphalt on
+    // the dark roads, paving on the light walks, leaf litter on green ground.
+    const detail = {}
+    for (const [k, f] of [['uAsph', 'asphalt_02'], ['uPave', 'patterned_paving_02'], ['uSoil', 'forrest_ground_01']]) {
+      const t = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/${f}.jpg`)
+      t.colorSpace = THREE.SRGBColorSpace
+      t.wrapS = t.wrapT = THREE.RepeatWrapping
+      t.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
+      detail[k] = { value: t }
+    }
+    gmat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, AER, detail)
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vXZ;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvXZ = (modelMatrix * vec4(transformed, 1.0)).xz;')
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vXZ;\nuniform sampler2D uAsph, uPave, uSoil;\n' + AER_GLSL)
+        .replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+          if (uAerOn > 0.5) {
+            vec3 aer = aerialAt(vXZ) * 1.2;
+            // The photo's baked shadows are deeper than the scene's own: lift them.
+            aer = aer * (1.0 + 1.3 * (1.0 - smoothstep(0.0, 0.2, dot(aer, vec3(0.299, 0.587, 0.114))))) + vec3(0.025, 0.024, 0.02);
+            aer = pow(aer, vec3(0.85)) * 1.1;
+            // Detail fades in near the eye, as each texture over its own
+            // average so the photo's colour is kept and only grain is added.
+            float near = 1.0 - smoothstep(30.0, 160.0, length(vViewPosition));
+            if (near > 0.0) {
+              float lum = dot(aer, vec3(0.299, 0.587, 0.114));
+              float green = clamp((aer.g - max(aer.r, aer.b)) * 10.0, 0.0, 1.0);
+              vec2 a = vXZ / 3.2, p = vXZ / 2.2, s = vXZ / 2.6;
+              vec3 da = texture2D(uAsph, a).rgb / max(texture2D(uAsph, a, 12.0).rgb, vec3(0.02));
+              vec3 dp = texture2D(uPave, p).rgb / max(texture2D(uPave, p, 12.0).rgb, vec3(0.02));
+              vec3 ds = texture2D(uSoil, s).rgb / max(texture2D(uSoil, s, 12.0).rgb, vec3(0.02));
+              vec3 d = mix(mix(da, mix(da, dp, 0.7), smoothstep(0.1, 0.22, lum)), ds, green);
+              d = clamp(mix(vec3(1.0), d, 0.8), 0.35, 1.9);
+              aer *= mix(vec3(1.0), d, near);
+            }
+            diffuseColor.rgb = aer;
+          }`,
+        )
+    }
+    this.ground = new THREE.Mesh(geo, gmat)
     this.ground.receiveShadow = true
     this.scene.add(this.ground)
+    this.#loadAerial()
+  }
+
+  // Swap the drawn map for the real photograph once enough of it has arrived.
+  #loadAerial() {
+    const origin = DATA.origin
+    const base = loadAerial({ origin, x0: T.x0, x1: X1, z0: T.z0, z1: Z1, zoom: 17, maxSize: MOBILE ? 2048 : 4096 })
+    const core = loadAerial({ origin, x0: -850, x1: 450, z0: -400, z1: 650, zoom: MOBILE ? 18 : 19, maxSize: MOBILE ? 4096 : 6144 })
+    for (const [t, x, l] of [[base.texture, 'uBaseX', 'uBase'], [core.texture, 'uCoreX', 'uCore']]) {
+      t.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
+      AER[l].value = t
+    }
+    AER.uBaseX.value.copy(base.xform)
+    AER.uCoreX.value.copy(core.xform)
+    Promise.all([base.ready, core.ready]).then(([a, b]) => {
+      if (a.ok && b.ok) AER.uAerOn.value = 1
+    })
   }
 
   async #loadTerrain() {
@@ -573,26 +565,151 @@ export class AnamFlight {
   // The whole scroll flight, precomputed: sampled along the tour, lifted over
   // every obstacle, then smoothed
   // so it glides with no kinks or swings.
+  // Tiger's-eye view: the camera runs low on the road a few metres behind the
+  // tiger and looks down the road past it; route parameter t is the tiger's.
+  #routeT(u) {
+    const T0 = 0.0005 // at the very start: no trail behind it yet
+    return u < TIGER_RUN ? T0 : Math.min(0.999, T0 + ((u - TIGER_RUN) / (TOUR_END - TIGER_RUN)) * (1 - T0))
+  }
+
+  // Distance (m) from any point near the tour to the nearest building wall,
+  // on a 1 m grid: footprints rasterised, then a two-pass chamfer transform.
+  #wallField() {
+    const x0 = -900, z0 = -450, W = 1400, H = 1150
+    const g = new Float32Array(W * H).fill(1e4)
+    const cv = document.createElement('canvas')
+    cv.width = W
+    cv.height = H
+    const ctx = cv.getContext('2d', { willReadFrequently: true })
+    // Red marks a footprint; green and blue carry its roof height (0.1 m steps from -40 m).
+    ctx.imageSmoothingEnabled = false
+    DATA.buildings.forEach((b, k) => {
+      const top = Math.round((WORLD.bases[k] + b.h + 40) * 10)
+      ctx.fillStyle = `rgb(255,${(top >> 8) & 255},${top & 255})`
+      ctx.beginPath()
+      b.p.forEach(([x, z], i) => (i ? ctx.lineTo(x - x0, z - z0) : ctx.moveTo(x - x0, z - z0)))
+      ctx.fill()
+    })
+    const px = ctx.getImageData(0, 0, W, H).data
+    const tops = new Float32Array(W * H).fill(-1e4)
+    for (let i = 0; i < W * H; i++)
+      if (px[i * 4] > 250 && px[i * 4 + 3] > 250) ((g[i] = 0), (tops[i] = (px[i * 4 + 1] * 256 + px[i * 4 + 2]) / 10 - 40))
+    const D1 = 1
+    const D2 = Math.SQRT2
+    for (let z = 0; z < H; z++)
+      for (let x = 0; x < W; x++) {
+        const i = z * W + x
+        let v = g[i]
+        if (x > 0) v = Math.min(v, g[i - 1] + D1)
+        if (z > 0) {
+          v = Math.min(v, g[i - W] + D1)
+          if (x > 0) v = Math.min(v, g[i - W - 1] + D2)
+          if (x < W - 1) v = Math.min(v, g[i - W + 1] + D2)
+        }
+        g[i] = v
+      }
+    for (let z = H - 1; z >= 0; z--)
+      for (let x = W - 1; x >= 0; x--) {
+        const i = z * W + x
+        let v = g[i]
+        if (x < W - 1) v = Math.min(v, g[i + 1] + D1)
+        if (z < H - 1) {
+          v = Math.min(v, g[i + W] + D1)
+          if (x < W - 1) v = Math.min(v, g[i + W + 1] + D2)
+          if (x > 0) v = Math.min(v, g[i + W - 1] + D2)
+        }
+        g[i] = v
+      }
+    const at = (x, z) => {
+      const i = Math.round(x - x0)
+      const j = Math.round(z - z0)
+      if (i < 1 || j < 1 || i >= W - 1 || j >= H - 1) return 1e4
+      return g[j * W + i]
+    }
+    return {
+      top: (x, z) => {
+        const i = Math.round(x - x0)
+        const j = Math.round(z - z0)
+        return i < 0 || j < 0 || i >= W || j >= H ? -1e4 : tops[j * W + i]
+      },
+      dist: at,
+      grad: (x, z) => {
+        const gx = at(x + 1, z) - at(x - 1, z)
+        const gz = at(x, z + 1) - at(x, z - 1)
+        const l = Math.hypot(gx, gz) || 1
+        return [gx / l, gz / l]
+      },
+    }
+  }
+
   #buildCameraPath() {
-    const N = 900
+    const N = 1600
     const A = { x: new Float32Array(N), y: new Float32Array(N), z: new Float32Array(N), lx: new Float32Array(N), ly: new Float32Array(N), lz: new Float32Array(N) }
-    const tan = new THREE.Vector3()
+    const L = this.route.getLength()
+    // Keep the eye off the walls (footpaths often hug a building) and keep
+    // the tiger in sight: try the full chase distance first, pushed out of
+    // any wall, and close in when a building would stand between them.
+    const F = this.wallF ?? this.#wallField()
+    const clearOf = (c) => {
+      for (let it = 0; it < 6; it++) {
+        const d = F.dist(c.x, c.z)
+        if (d >= CHASE.wall) break
+        const [gx, gz] = F.grad(c.x, c.z)
+        c.x += gx * (CHASE.wall - d + 0.3)
+        c.z += gz * (CHASE.wall - d + 0.3)
+      }
+      return c
+    }
+    // Clear line from the eye to the tiger: no wall and no rise of ground.
+    const eyeY = (c, p) => Math.max(this.groundAt(p.x, p.z) + CHASE.up, this.groundAt(c.x, c.z) + 1.5)
+    const sees = (c, p) => {
+      const n = Math.ceil(Math.hypot(p.x - c.x, p.z - c.z))
+      const y0 = eyeY(c, p)
+      const y1 = this.groundAt(p.x, p.z) + 1.2
+      for (let k = 1; k < n - 2; k++) {
+        const f = k / n
+        const x = c.x + (p.x - c.x) * f
+        const z = c.z + (p.z - c.z) * f
+        const line = y0 + (y1 - y0) * f
+        if ((F.dist(x, z) < 0.6 && F.top(x, z) > line - 2) || this.groundAt(x, z) > line - 0.4) return false
+      }
+      return y0 - y1 < CHASE.up * 1.6
+    }
     for (let i = 0; i < N; i++) {
       const u = i / (N - 1)
-      const p = this.route.getPointAt(u)
-      tan.set(0, 0, 0)
-      for (let k = -6; k <= 6; k++) tan.add(this.route.getTangentAt(THREE.MathUtils.clamp(u + k * 0.012, 0, 1)))
-      tan.setY(0).normalize()
-      const up = THREE.MathUtils.smoothstep(u, 0.9, 1)
-      const start = Math.max(0, 1 - u * 12)
-      const back = 95 + start * 120 + up * 520
-      A.x[i] = p.x - tan.x * back
-      A.z[i] = p.z - tan.z * back
-      A.y[i] = Math.max(this.groundAt(p.x, p.z), 0) + 62 + start * 80 + up * 420
-      const q = this.route.getPointAt(Math.min(1, u + 0.035))
-      A.lx[i] = THREE.MathUtils.lerp(q.x, 60, up)
-      A.lz[i] = THREE.MathUtils.lerp(q.z, -380, up)
-      A.ly[i] = this.groundAt(q.x, q.z) + 18
+      const t = this.#routeT(u)
+      const tp = this.route.getPointAt(t)
+      let c = null
+      for (const back of [CHASE.back, 13, 10, 7, 5]) {
+        const tryC = clearOf(this.route.getPointAt(Math.max(0, t - back / L)))
+        if (sees(tryC, tp)) {
+          c = tryC
+          break
+        }
+      }
+      c ??= this.route.getPointAt(Math.max(0, t - 5 / L))
+      const q = this.route.getPointAt(Math.min(1, t + CHASE.ahead / L))
+      const up = THREE.MathUtils.smoothstep(u, TOUR_END, 1)
+      const ground = this.groundAt(tp.x, tp.z)
+      A.x[i] = c.x
+      A.z[i] = c.z + up * 420
+      // Height above the tiger's own ground, never into the slope under the eye.
+      A.y[i] = Math.max(ground + CHASE.up, this.groundAt(c.x, c.z) + 1.5) + up * 520
+      // Aim down the road, but never so far off the tiger (round a bend, or
+      // looking out over it from a rise) that it leaves the frame.
+      const camY = A.y[i] - up * 520
+      const dT = Math.hypot(tp.x - c.x, tp.z - c.z)
+      const yawT = Math.atan2(tp.x - c.x, tp.z - c.z)
+      let dy = Math.atan2(q.x - c.x, q.z - c.z) - yawT
+      dy = Math.atan2(Math.sin(dy), Math.cos(dy))
+      const yaw = yawT + THREE.MathUtils.clamp(dy, -0.35, 0.35)
+      const r = Math.max(20, Math.hypot(q.x - c.x, q.z - c.z))
+      const pitchT = Math.atan2(ground + 1.2 - camY, Math.max(1, dT))
+      const pitchQ = Math.atan2(Math.max(this.groundAt(q.x, q.z), ground) + CHASE.look - camY, r)
+      const pitch = THREE.MathUtils.clamp(pitchQ, pitchT - 0.05, pitchT + 0.32)
+      A.lx[i] = THREE.MathUtils.lerp(c.x + Math.sin(yaw) * r, 60, up)
+      A.lz[i] = THREE.MathUtils.lerp(c.z + Math.cos(yaw) * r, -380, up)
+      A.ly[i] = THREE.MathUtils.lerp(camY + Math.tan(pitch) * r, 0, up)
     }
     const blur = (arr, r, passes = 3) => {
       const t = new Float32Array(arr.length)
@@ -610,42 +727,17 @@ export class AnamFlight {
         arr.set(t)
       }
     }
-    for (const k of ['x', 'z', 'lx', 'lz', 'ly']) blur(A[k], 14)
-    // Height that clears the obstacles under the camera
-    // (55 m ahead, 11 m below), then smoothed without dipping below it.
-    const need = new Float32Array(N)
+    // Smooth the corners a little; the aim more than the eye.
+    for (const k of ['x', 'z', 'y']) blur(A[k], 3)
+    // Smoothing can pull the eye back toward a corner: push it out once more.
     const v = new THREE.Vector3()
     for (let i = 0; i < N; i++) {
-      v.set(A.lx[i] - A.x[i], 0, A.lz[i] - A.z[i]).normalize()
-      need[i] = Math.max(this.clearAt(A.x[i], A.z[i]) + 28, this.clearAt(A.x[i] + v.x * 55, A.z[i] + v.z * 55) + 24)
-      A.y[i] = Math.max(A.y[i], need[i])
+      clearOf(v.set(A.x[i], 0, A.z[i]))
+      A.x[i] = v.x
+      A.z[i] = v.z
     }
-    const maxf = (arr, r) => {
-      const t = arr.slice()
-      for (let i = 0; i < arr.length; i++) {
-        let m = -1e9
-        for (let d = -r; d <= r; d++) m = Math.max(m, t[Math.min(arr.length - 1, Math.max(0, i + d))])
-        arr[i] = m
-      }
-    }
-    maxf(A.y, 30)
-    blur(A.y, 16)
-    for (let i = 0; i < N; i++) A.y[i] = Math.max(A.y[i], need[i])
-    blur(A.y, 6, 2)
-    // Re-sample by travelled distance (camera plus aim) so the glide keeps
-    // an even speed through bends instead of crawling and then lurching.
-    const cum = new Float32Array(N)
-    for (let i = 1; i < N; i++)
-      cum[i] = cum[i - 1] + Math.hypot(A.x[i] - A.x[i - 1], A.y[i] - A.y[i - 1], A.z[i] - A.z[i - 1]) + 0.6 * Math.hypot(A.lx[i] - A.lx[i - 1], A.lz[i] - A.lz[i - 1])
-    const R = {}
-    for (const k of Object.keys(A)) R[k] = new Float32Array(N)
-    let j = 0
-    for (let i = 0; i < N; i++) {
-      const s = (i / (N - 1)) * cum[N - 1]
-      while (j < N - 2 && cum[j + 1] < s) j++
-      const t = (s - cum[j]) / Math.max(1e-6, cum[j + 1] - cum[j])
-      for (const k of Object.keys(A)) R[k][i] = A[k][j] + (A[k][j + 1] - A[k][j]) * t
-    }
+    for (const k of ['lx', 'lz', 'ly']) blur(A[k], 8)
+    const R = A
     this.path = { ...R, N }
     // Lock-ons peak when the aim passes closest to each landmark.
     for (const tg of this.targets) {
@@ -706,107 +798,193 @@ export class AnamFlight {
   }
 
   #buildBuildings() {
-    const walls = []
-    const roofs = []
+    // Every footprint becomes a real-looking block: walls with bays centred on
+    // each wall, a parapet with coping on flat roofs, a dressed-stone plinth and
+    // cornice on the stone halls, slate roofs (hipped or mansard) on the gothic
+    // halls, and towers with battlements and pinnacles on the three great halls.
+    const geos = []
+    const add = (geo, style, seed, base, top, poly) => {
+      geo = geo.index ? geo.toNonIndexed() : geo
+      for (const k of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(k)) geo.deleteAttribute(k)
+      if (!geo.attributes.normal) geo.computeVertexNormals()
+      if (style === BST.slate) slopeUV(geo)
+      else wallUV(geo, poly)
+      geos.push(tagB(geo, style, seed, base, top))
+    }
+    const prism = (poly, y0, y1) => {
+      const g = new THREE.ExtrudeGeometry(new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, -z))), { depth: y1 - y0, bevelEnabled: false })
+      g.rotateX(-Math.PI / 2)
+      g.translate(0, y0, 0)
+      return g
+    }
+    const ring = (poly, inset, y0, y1) => {
+      const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, -z)))
+      shape.holes.push(new THREE.Path(offsetPoly(poly, -inset).map(([x, z]) => new THREE.Vector2(x, -z))))
+      const g = new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false })
+      g.rotateX(-Math.PI / 2)
+      g.translate(0, y0, 0)
+      return g
+    }
+    // Sloped band from the footprint edge up to an inset ring, flat inside.
+    const mansard = (poly, inset, y0, rh) => {
+      const inner = offsetPoly(poly, -inset)
+      const outer = offsetPoly(poly, 0.45) // eaves
+      const pos = []
+      const tri = (p, q, r) => {
+        const n = new THREE.Vector3().subVectors(q, p).cross(new THREE.Vector3().subVectors(r, p))
+        if (n.y < 0) pos.push(...p.toArray(), ...r.toArray(), ...q.toArray())
+        else pos.push(...p.toArray(), ...q.toArray(), ...r.toArray())
+      }
+      for (let i = 0; i < outer.length - 1; i++) {
+        const o0 = new THREE.Vector3(outer[i][0], y0, outer[i][1])
+        const o1 = new THREE.Vector3(outer[i + 1][0], y0, outer[i + 1][1])
+        const i0 = new THREE.Vector3(inner[i][0], y0 + rh, inner[i][1])
+        const i1 = new THREE.Vector3(inner[i + 1][0], y0 + rh, inner[i + 1][1])
+        tri(o0, o1, i1)
+        tri(o0, i1, i0)
+      }
+      const slope = new THREE.BufferGeometry()
+      slope.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+      slope.computeVertexNormals()
+      const cap = new THREE.ShapeGeometry(new THREE.Shape(inner.map(([x, z]) => new THREE.Vector2(x, -z))))
+      cap.rotateX(-Math.PI / 2)
+      cap.translate(0, y0 + rh, 0)
+      return { slope, cap, inner }
+    }
+    // An inset of a concave footprint can fold over itself and throw a roof
+    // plane across the sky: only use it when every inset corner and edge
+    // midpoint stays inside the footprint and the area shrinks sensibly.
+    const inPoly = (x, z, poly) => {
+      let r = false
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, zi] = poly[i]
+        const [xj, zj] = poly[j]
+        if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) r = !r
+      }
+      return r
+    }
+    const insetOk = (poly, inset) => {
+      const inner = offsetPoly(poly, -inset)
+      for (let i = 0; i < inner.length - 1; i++) {
+        const [x0, z0] = inner[i]
+        const [x1, z1] = inner[i + 1]
+        if (!inPoly(x0, z0, poly) || !inPoly((x0 + x1) / 2, (z0 + z1) / 2, poly)) return false
+        if (Math.hypot(x1 - x0, z1 - z0) > 400) return false
+      }
+      const k = area(inner) / Math.max(1, area(poly))
+      return k > 0.15 && k < 0.97
+    }
+    const area = (poly) => {
+      let a = 0
+      for (let i = 0; i < poly.length - 1; i++) a += poly[i][0] * poly[i + 1][1] - poly[i + 1][0] * poly[i][1]
+      return Math.abs(a / 2)
+    }
+
     DATA.buildings.forEach((b, i) => {
       const base = WORLD.bases[i]
       const s = STYLE[WORLD.styles[i]]
       const seed = ((i * 0.6180339) % 1 + 1) % 1
-      const shape = new THREE.Shape(b.p.map(([x, z]) => new THREE.Vector2(x, -z)))
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: b.h + 1, bevelEnabled: false })
-      geo.rotateX(-Math.PI / 2)
-      geo.translate(0, base - 1, 0)
-      const n = geo.attributes.position.count
-      const a = new Float32Array(n * 4)
-      for (let k = 0; k < n; k++) a.set([s, seed, base, base + b.h], k * 4)
-      geo.setAttribute('aB', new THREE.BufferAttribute(a, 4))
-      walls.push(geo)
-      // Gothic stone halls get hipped slate roofs, and the three great halls a tower.
+      const top = base + b.h
+      const P = b.p
+      const o = obb(P)
+      const fill = area(P) / Math.max(1, o.L * o.W)
+      add(prism(P, base - 1, top), s, seed, base, top, P)
+      const stone = s === STYLE.g || s === STYLE.c
+      if (stone && b.c) {
+        // Plinth (base course) and cornice in dressed granite.
+        const pl = offsetPoly(P, 0.22)
+        add(prism(pl, base - 1, base + 1.1), BST.trim, seed, base, top, pl)
+        const co = offsetPoly(P, 0.32)
+        add(prism(co, top - 0.55, top - 0.1), BST.trim, seed, base, top, co)
+      }
       if (s === STYLE.g) {
-        const o = obb(b.p)
-        const roof = hipRoof(o.L + 1, o.W + 1, Math.min(9, o.W * 0.42))
-        roof.rotateY(-o.a)
-        roof.translate(o.cx, base + b.h, o.cz)
-        roofs.push(roof)
+        // Slate roof: hipped over simple blocks, mansard over wings and courts.
+        const rh = Math.min(7.5, o.W * 0.38)
+        if (fill > 0.86) {
+          const roof = hipRoof(o.L + 1.0, o.W + 1.0, rh)
+          roof.rotateY(-o.a)
+          roof.translate(o.cx, top, o.cz)
+          add(roof, BST.slate, seed, base, top, P)
+        } else if (o.W > 7 && insetOk(P, Math.min(4.5, o.W * 0.3))) {
+          const m = mansard(P, Math.min(4.5, o.W * 0.3), top, Math.min(4, rh))
+          add(m.slope, BST.slate, seed, base, top, P)
+          add(m.cap, s, seed, base, top, m.inner)
+        }
         if (TOWERS.test(b.n)) {
           const tw = Math.min(11, o.W * 0.7)
+          const tTop = base + b.h * 1.75
           const m = new THREE.Matrix4().makeRotationY(-o.a).setPosition(o.cx, 0, o.cz)
-          const t2 = new THREE.BoxGeometry(tw, b.h * 0.75, tw)
-          t2.translate(0, base + b.h + (b.h * 0.75) / 2, 0)
-          t2.applyMatrix4(m)
-          roofs.push(t2)
-          for (let q = 0; q < 8; q++) {
-            // Crenellations around the tower top.
-            const side = q % 4
-            const off = q < 4 ? -0.3 : 0.3
-            const mx = side === 0 ? tw / 2 : side === 1 ? -tw / 2 : off * tw
-            const mz = side === 2 ? tw / 2 : side === 3 ? -tw / 2 : off * tw
-            const mer = new THREE.BoxGeometry(1.4, 1.4, 1.4)
-            mer.translate(mx, base + b.h * 1.75 + 0.7, mz)
-            mer.applyMatrix4(m)
-            roofs.push(mer)
+          const sq = (h) => {
+            const pts = [[-h, -h], [h, -h], [h, h], [-h, h], [-h, -h]].map(([x, z]) => new THREE.Vector3(x, 0, z).applyMatrix4(m))
+            return pts.map((v) => [v.x, v.z])
           }
+          const shaft = sq(tw / 2)
+          add(prism(shaft, top - 1, tTop), STYLE.g, seed, base, tTop, shaft)
+          const band = offsetPoly(shaft, 0.3)
+          add(prism(band, tTop - 0.2, tTop + 0.35), BST.trim, seed, base, tTop, band)
+          if (b.n === '본관') {
+            // The clock tower's steep slate spire.
+            const spire = new THREE.ConeGeometry(tw * 0.74, tw * 1.25, 4, 1)
+            spire.rotateY(Math.PI / 4)
+            spire.translate(0, tTop + 0.35 + tw * 0.625, 0)
+            spire.applyMatrix4(m)
+            add(spire, BST.slate, seed, base, tTop, shaft)
+          } else {
+            // Battlements: a parapet with merlons, and a pinnacle at each corner.
+            add(ring(band, 0.55, tTop + 0.35, tTop + 1.5), BST.trim, seed, base, tTop, band)
+            const h = tw / 2 + 0.3
+            const nM = Math.max(3, Math.round(tw / 1.4))
+            for (let side = 0; side < 4; side++) {
+              for (let q = 1; q < nM; q++) {
+                const t = -h + (2 * h * q) / nM
+                const [x, z] = side === 0 ? [t, -h] : side === 1 ? [h, t] : side === 2 ? [-t, h] : [-h, -t]
+                const mer = new THREE.BoxGeometry(0.75, 0.9, 0.55)
+                if (side % 2) mer.rotateY(Math.PI / 2)
+                mer.translate(x, tTop + 1.95, z)
+                mer.applyMatrix4(m)
+                add(mer, BST.trim, seed, base, tTop, band)
+              }
+            }
+            for (const [x, z] of [[-h, -h], [h, -h], [h, h], [-h, h]]) {
+              const post = new THREE.BoxGeometry(1.1, 3.4, 1.1)
+              post.translate(x, tTop + 2.05, z)
+              post.applyMatrix4(m)
+              add(post, BST.trim, seed, base, tTop, band)
+              const cap = new THREE.ConeGeometry(0.85, 2.2, 4, 1)
+              cap.rotateY(Math.PI / 4)
+              cap.translate(x, tTop + 3.75 + 1.1, z)
+              cap.applyMatrix4(m)
+              add(cap, BST.slate, seed, base, tTop, band)
+            }
+          }
+        }
+      } else if (o.W > 4) {
+        // Flat roof: parapet, with metal or stone coping on the campus blocks.
+        const ph = s === STYLE.t ? 0.6 : 0.95
+        add(ring(P, 0.3, top, top + ph), s, seed, base, top, P)
+        if (b.c && s !== STYLE.t) {
+          const cp = offsetPoly(P, 0.06)
+          add(ring(cp, 0.42, top + ph, top + ph + 0.12), s === STYLE.c ? BST.trim : BST.coping, seed, base, top, cp)
         }
       }
     })
-    this.buildings = new THREE.Mesh(mergeGeometries(walls), buildingMaterial())
+    this.buildings = new THREE.Mesh(mergeGeometries(geos), buildingMaterial())
     this.buildings.castShadow = this.buildings.receiveShadow = true
     this.scene.add(this.buildings)
-    if (roofs.length) {
-      const slate = new THREE.Mesh(mergeGeometries(roofs.map((g) => (g.index ? g.toNonIndexed() : g)).map((g) => (g.deleteAttribute('uv'), g))), new THREE.MeshStandardMaterial({ color: '#4c4f54', roughness: 0.7 }))
-      slate.castShadow = slate.receiveShadow = true
-      this.scene.add(slate)
-    }
   }
 
-  // Mapped trees, tree rows and forest cover as instanced low-poly trees.
-  #buildTrees() {
-    const trunk = new THREE.CylinderGeometry(0.3, 0.45, 4, 5)
-    trunk.translate(0, 2, 0)
-    const crown = new THREE.IcosahedronGeometry(3.4, 0)
-    crown.scale(1, 1.15, 1)
-    crown.translate(0, 6.4, 0)
-    const crown2 = new THREE.IcosahedronGeometry(2.4, 0)
-    crown2.translate(1.2, 8.3, 0.6)
-    const parts = [trunk, crown, crown2].map((g) => {
-      g = g.index ? g.toNonIndexed() : g
-      g.deleteAttribute('uv')
-      return g
-    })
-    const colors = parts.map((g, k) => {
-      const c = new Float32Array(g.attributes.position.count * 3)
-      const col = k === 0 ? [0.28, 0.2, 0.14] : [1, 1, 1]
-      for (let i = 0; i < c.length; i += 3) c.set(col, i)
-      g.setAttribute('color', new THREE.BufferAttribute(c, 3))
-      return g
-    })
-    const geo = mergeGeometries(colors)
-    const all = WORLD.trees.length / 4
-    const pick = MOBILE ? 2 : 1
-    const n = Math.floor(all / pick)
-    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 }), n)
-    const m = new THREE.Matrix4()
-    const q = new THREE.Quaternion()
-    const e = new THREE.Euler()
-    const c = new THREE.Color()
-    for (let i = 0; i < n; i++) {
-      const [x, z, y, s] = WORLD.trees.slice(i * pick * 4, i * pick * 4 + 4)
-      q.setFromEuler(e.set(0, (i * 2.399) % 6.28, 0))
-      m.compose(new THREE.Vector3(x, y - 0.3, z), q, new THREE.Vector3(s, s * (0.9 + ((i * 0.37) % 0.3)), s))
-      mesh.setMatrixAt(i, m)
-      c.setHSL(0.22 + ((i * 0.131) % 0.1), 0.5, 0.17 + ((i * 0.071) % 0.09))
-      mesh.setColorAt(i, c)
-    }
-    mesh.castShadow = !MOBILE
-    mesh.receiveShadow = false
-    this.scene.add(mesh)
-  }
 
   #buildRoute() {
     // The tour follows real roads and footpaths: each leg between landmarks
     // is the shortest way along the OSM network, so the tiger (and the trail
     // and camera above it) never cut through a building.
-    const pts = roadTour(WORLD.tour, DATA.paths).map(([x, z]) => new THREE.Vector3(x, 0, z))
+    // Open roads over lanes squeezed between buildings: an edge costs up to
+    // five times its length when it runs within 8 m of a wall.
+    this.wallF = this.#wallField()
+    const F = this.wallF
+    const nearWall = (x, z) => Math.max(0, 1 - F.dist(x, z) / 8)
+    const cost = (ax, az, bx, bz) => 1 + 4 * Math.max(nearWall(ax, az), nearWall(bx, bz), nearWall((ax + bx) / 2, (az + bz) / 2))
+    const pts = roadTour(WORLD.tour, DATA.paths, cost).map(([x, z]) => new THREE.Vector3(x, 0, z))
     this.route = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5)
 
     const hallOf = (name) => {
@@ -906,12 +1084,12 @@ export class AnamFlight {
   #buildPaws() {
     const prints = []
     const L = this.route.getLength()
-    const n = Math.floor(L / 13)
+    const n = Math.floor(L / 4.2)
     for (let k = 1; k < n; k++) {
       const t = k / n
       const p = this.route.getPointAt(t)
       const d = this.route.getTangentAt(t).setY(0).normalize()
-      const side = k % 2 ? 3 : -3
+      const side = k % 2 ? 0.7 : -0.7
       const x = p.x - d.z * side
       const z = p.z + d.x * side
       // Its place on the route: it lights once the tiger has run past it.
@@ -928,7 +1106,7 @@ export class AnamFlight {
       return c
     })
     const paw = mergeGeometries(geos)
-    paw.scale(3.6, 1, 3.6)
+    paw.scale(0.9, 1, 0.9)
     const mesh = new THREE.InstancedMesh(
       paw,
       new THREE.ShaderMaterial({
@@ -939,7 +1117,7 @@ export class AnamFlight {
           void main(){
             float on = step(vU, uHead);
             float hot = exp(-max(uHead - vU, 0.0) * 60.0);
-            float a = on * (0.28 + 0.9 * hot) * (0.85 + 0.15 * sin(uTime * 6.0 + vU * 300.0));
+            float a = on * (0.1 + 0.6 * hot) * (0.85 + 0.15 * sin(uTime * 6.0 + vU * 300.0));
             gl_FragColor = vec4(vec3(1.0, 0.16 + hot * 0.35, 0.08) * (0.8 + hot * 1.6), a);
           }`,
         transparent: true,
@@ -955,7 +1133,7 @@ export class AnamFlight {
     const q = new THREE.Quaternion()
     prints.forEach((pr, i) => {
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), pr.a)
-      m.compose(new THREE.Vector3(pr.x, this.groundAt(pr.x, pr.z) + 0.35, pr.z), q, new THREE.Vector3(1, 1, 1))
+      m.compose(new THREE.Vector3(pr.x, this.groundAt(pr.x, pr.z) + 0.06, pr.z), q, new THREE.Vector3(1, 1, 1))
       mesh.setMatrixAt(i, m)
       aU[i] = pr.u
     })
@@ -1020,7 +1198,7 @@ export class AnamFlight {
   }
 
   #tourPose(u) {
-    const up = THREE.MathUtils.smoothstep(u, 0.9, 1)
+    const up = THREE.MathUtils.smoothstep(u, TOUR_END, 1)
     this.overview = up
     const P = this.path
     const pos = new THREE.Vector3()
@@ -1040,11 +1218,42 @@ export class AnamFlight {
     }
     // Gentle pointer steer, never into anything.
     const side = new THREE.Vector3(look.z - pos.z, 0, pos.x - look.x).normalize()
-    pos.addScaledVector(side, -this.mouse.x * 12 * (1 - up))
-    pos.y += this.mouse.y * 6 * (1 - up)
-    pos.y = Math.max(pos.y, this.clearAt(pos.x, pos.z) + 22)
+    pos.addScaledVector(side, -this.mouse.x * 1.5 * (1 - up))
+    pos.y += this.mouse.y * 0.8 * (1 - up)
+    // Passing a landmark, the tiger's gaze turns to it and the eye lifts a little.
+    if (this.targets && !up) {
+      let w = 0
+      const at = new THREE.Vector3()
+      // Only landmarks standing back from the road: a wall right beside it
+      // would fill the frame.
+      for (const t of this.targets) if (t.near > w && Math.hypot(t.anchor.x - pos.x, t.anchor.z - pos.z) > 30) (w = t.near), at.copy(t.anchor)
+      w = THREE.MathUtils.smootherstep(w, 0, 1)
+      if (w > 0) {
+        // Turn toward it, but never more than ~35° off the road, and tilt up
+        // to take in the facade; the tiger stays in frame.
+        const road = Math.atan2(look.x - pos.x, look.z - pos.z)
+        let off = Math.atan2(at.x - pos.x, at.z - pos.z) - road
+        off = Math.atan2(Math.sin(off), Math.cos(off))
+        const yaw = road + THREE.MathUtils.clamp(off, -0.25, 0.25) * w
+        const r = Math.hypot(look.x - pos.x, look.z - pos.z)
+        pos.y += w * 4
+        look.set(pos.x + Math.sin(yaw) * r, look.y + w * 3, pos.z + Math.cos(yaw) * r)
+      }
+    }
+    pos.y = Math.max(pos.y, THREE.MathUtils.lerp(this.groundAt(pos.x, pos.z) + 1.5, this.clearAt(pos.x, pos.z) + 22, up))
     // Portrait screens see more sky, so they look further down.
-    look.y -= this.portrait ? 45 + up * 170 : 0
+    look.y -= this.portrait ? 2 + up * 170 : 0
+    // A tall screen is narrow: keep the aim within a few degrees of the tiger.
+    if (this.portrait && this.tiger?.ready && up < 1 && !this.free) {
+      const T = this.tiger.group.position
+      const yT = Math.atan2(T.x - pos.x, T.z - pos.z)
+      const r = Math.hypot(look.x - pos.x, look.z - pos.z)
+      let d = Math.atan2(look.x - pos.x, look.z - pos.z) - yT
+      d = Math.atan2(Math.sin(d), Math.cos(d))
+      const yaw = yT + THREE.MathUtils.lerp(THREE.MathUtils.clamp(d, -0.12, 0.12), d, up)
+      look.x = pos.x + Math.sin(yaw) * r
+      look.z = pos.z + Math.cos(yaw) * r
+    }
     return { pos, look }
   }
 
@@ -1071,8 +1280,8 @@ export class AnamFlight {
       }
       // The camera climbs away first; its eyes stay on the running tiger a
       // little longer before turning to the road ahead.
-      const k = THREE.MathUtils.smootherstep(this.u, 0.032, 0.08)
-      const kl = THREE.MathUtils.smootherstep(this.u, 0.045, 0.1)
+      const k = THREE.MathUtils.smootherstep(this.u, 0.03, 0.06)
+      const kl = THREE.MathUtils.smootherstep(this.u, 0.03, 0.055)
       pose = { pos: close.pos.lerp(pose.pos, k), look: close.look.lerp(pose.look, kl) }
     }
     if (this.free && Math.abs(this.progress - this.free.progress) > 0.004) this.exitFree()
@@ -1137,6 +1346,10 @@ export class AnamFlight {
     // Sun and its shadow box follow what we look at.
     this.sun.target.position.copy(this.look)
     this.sun.position.copy(this.look).addScaledVector(this.lightDir, 900)
+    // Sharp shadows at road level, a wide box for the overview.
+    const box = Math.round(THREE.MathUtils.lerp(120, 330, Math.max(this.overview ?? 0, this.free ? 1 : 0)) / 10) * 10
+    const sc = this.sun.shadow.camera
+    if (sc.right !== box) ((sc.left = sc.bottom = -box), (sc.right = sc.top = box), sc.updateProjectionMatrix())
 
     this.#updatePaws(dt)
     this.#updateTiger(dt)
@@ -1154,8 +1367,7 @@ export class AnamFlight {
   // follows, climbing into the flight. After that it leads the way just
   // ahead of the camera, on its own pawprint trail.
   #tigerAt(u) {
-    const T0 = 0.0005 // at the very start: no trail behind it yet
-    const t = u < TIGER_RUN ? T0 : Math.min(u + 0.01, T0 + (u - TIGER_RUN) * 1.3)
+    const t = this.#routeT(u)
     const p = this.route.getPointAt(Math.min(0.999, t))
     const d = this.route.getTangentAt(Math.min(0.999, t)).setY(0).normalize()
     p.y = this.groundAt(p.x, p.z)

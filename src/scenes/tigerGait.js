@@ -58,6 +58,7 @@ export class TigerGait {
     this.sign = 1 // flip if the model's joints swing the other way
     this.mix = 1 // 1 = full gallop pose, 0 = leave the bones as they are
     this.t = 0
+    this.roarPose = { jaw: 0.78, neck0: 0.26, neck1: 0.2, head: 0.14, chest: 0.1, spine: 0.05, fore: -0.22 }
   }
 
   // Set one joint to its rest pose turned `angle` about the lateral axis.
@@ -79,14 +80,15 @@ export class TigerGait {
     const keep = this.mix
     this.mix = k
     const J = this.roarSigns ?? { jaw: 1, neck: -1 }
-    this.#turn('c_jaw_00', 0.78 * J.jaw)
-    this.#turn('c_neck_00', 0.26 * J.neck)
-    this.#turn('c_neck_01', 0.2 * J.neck)
-    this.#turn('c_head_00', 0.14 * J.neck)
-    this.#turn('c_chest_00', 0.1 * J.neck)
-    this.#turn('c_spine_03', 0.05 * J.neck)
-    this.#turn('l_femurRibbonFront_00', -0.22)
-    this.#turn('r_femurRibbonFront_00', -0.22)
+    const R = this.roarPose
+    this.#turn('c_jaw_00', R.jaw * J.jaw)
+    this.#turn('c_neck_00', R.neck0 * J.neck)
+    this.#turn('c_neck_01', R.neck1 * J.neck)
+    this.#turn('c_head_00', R.head * J.neck)
+    this.#turn('c_chest_00', R.chest * J.neck)
+    this.#turn('c_spine_03', R.spine * J.neck)
+    this.#turn('l_femurRibbonFront_00', R.fore)
+    this.#turn('r_femurRibbonFront_00', R.fore)
     this.mix = keep
   }
 
