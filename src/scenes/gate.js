@@ -430,6 +430,142 @@ export class Gate {
     hall.position.set(0, 0, -150)
     hall.scale.setScalar(1.3)
     st.add(hall)
+    // ---- The rest of the campus and the city behind, so the plaza is a place.
+    {
+      const winM = new THREE.MeshBasicMaterial({ color: '#ffc879' })
+      this.backGlow = winM
+      const darkWin = new THREE.MeshBasicMaterial({ color: '#2a2028' })
+      // A gothic granite hall: stone block, string course, slate roof, a row
+      // of lit windows per floor on the face toward the plaza, battlements or
+      // a gable, sometimes a corner tower.
+      const gothic = (w, h, d, x, z, ry, seed) => {
+        const g = new THREE.Group()
+        const body = new THREE.Mesh(wuv(new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0)), stone)
+        g.add(body)
+        const course = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 0.5, d + 0.6).translate(0, h + 0.25, 0), trim)
+        g.add(course)
+        if (seed % 2) {
+          for (let k = 0; k < Math.floor(w / 2.2); k++) g.add(new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.0, 0.5).translate(-w / 2 + 1.1 + k * 2.2, h + 1.0, d / 2), trim))
+        } else {
+          const r = new THREE.Shape([new THREE.Vector2(-d / 2 - 0.4, 0), new THREE.Vector2(d / 2 + 0.4, 0), new THREE.Vector2(0, d * 0.55)])
+          const rg = new THREE.ExtrudeGeometry(r, { depth: w, bevelEnabled: false })
+          rg.translate(0, 0, -w / 2).rotateY(Math.PI / 2).translate(0, h + 0.5, 0)
+          g.add(new THREE.Mesh(rg, slate))
+        }
+        if (seed % 3 === 0) {
+          const tw = 6
+          g.add(new THREE.Mesh(wuv(new THREE.BoxGeometry(tw, h * 1.5, tw).translate(w / 2 - tw / 2, (h * 1.5) / 2, d / 2 - tw / 2 + 0.5)), stone))
+          for (let k = 0; k < 3; k++) for (const zz of [-1, 1]) g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.5).translate(w / 2 - tw + 1 + k * 2, h * 1.5 + 0.5, d / 2 - tw / 2 + 0.5 + zz * 2.75), trim))
+        }
+        const floors = Math.max(2, Math.floor(h / 4))
+        const cols = Math.floor(w / 3.2)
+        let rnd = seed * 9301 + 49297
+        const r1 = () => ((rnd = (rnd * 9301 + 49297) % 233280) / 233280)
+        for (let f = 0; f < floors; f++)
+          for (let c = 0; c < cols; c++) {
+            const lit = r1() < 0.62
+            const wgeo = new THREE.PlaneGeometry(1.3, 2.2).translate(-w / 2 + 1.6 + c * 3.2, 1.6 + f * 4 + 1.1, d / 2 + 0.03)
+            g.add(new THREE.Mesh(wgeo, lit ? winM : darkWin))
+          }
+        g.position.set(x, 0, z)
+        g.rotation.y = ry
+        st.add(g)
+      }
+      // Either side of the plaza, faces turned in toward it.
+      ;[[-62, -45, 34, 15, 12], [-70, -95, 40, 18, 14], [-66, -138, 30, 16, 12], [62, -45, 34, 15, 12], [70, -95, 40, 18, 14], [66, -138, 30, 16, 12]].forEach(([x, z, w, h, d], i) => gothic(w, h, d, x, z, x < 0 ? Math.PI / 2 : -Math.PI / 2, i + 1))
+      // Further back, beyond 본관's wings.
+      ;[[-110, -185, 46, 20, 16], [110, -185, 46, 20, 16], [-150, -120, 40, 16, 14], [150, -120, 40, 16, 14]].forEach(([x, z, w, h, d], i) => gothic(w, h, d, x, z, 0, i + 7))
+
+      // The ridge behind 안암 and the lights of Seoul scattered up its slopes.
+      const ridge = new THREE.Shape()
+      ridge.moveTo(-420, 0)
+      for (let k = 0; k <= 60; k++) {
+        const x = -420 + k * 14
+        const y = 26 + Math.sin(k * 0.37) * 10 + Math.sin(k * 0.13 + 1) * 16 + Math.sin(k * 1.1) * 3 + (Math.abs(x) < 60 ? -8 : 0)
+        ridge.lineTo(x, y)
+      }
+      ridge.lineTo(420, 0)
+      const ridgeM = new THREE.MeshBasicMaterial({ color: '#0d0a12' })
+      const rm = new THREE.Mesh(new THREE.ShapeGeometry(ridge), ridgeM)
+      rm.position.set(0, 0, -300)
+      st.add(rm)
+      const CL = mobile ? 900 : 2200
+      const cl = new Float32Array(CL * 3)
+      for (let i = 0; i < CL; i++) {
+        const x = (Math.random() - 0.5) * 820
+        const yMax = 24 + Math.sin((x + 420) / 14 * 0.37) * 8
+        cl.set([x, Math.random() ** 2 * yMax, -296 + Math.random() * 8], i * 3)
+      }
+      const clg = new THREE.BufferGeometry()
+      clg.setAttribute('position', new THREE.BufferAttribute(cl, 3))
+      st.add(new THREE.Points(clg, new THREE.PointsMaterial({ color: '#ffcf8f', size: 0.9, transparent: true, opacity: 0.8, depthWrite: false })))
+      // A band of the city's towers in front of the ridge, windows lit.
+      const towerM = new THREE.MeshBasicMaterial({ color: '#120e16' })
+      const towers = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), towerM, 60)
+      const tm = new THREE.Matrix4()
+      const tp = []
+      for (let i = 0; i < 60; i++) {
+        let x = (Math.random() - 0.5) * 700
+        if (Math.abs(x) < 70) x += Math.sign(x || 1) * 70
+        const h = 18 + Math.random() * 45
+        const wd = 8 + Math.random() * 10
+        tm.compose(new THREE.Vector3(x, 0, -250 - Math.random() * 30), new THREE.Quaternion(), new THREE.Vector3(wd, h, 8))
+        towers.setMatrixAt(i, tm)
+        tp.push([x, h, wd])
+      }
+      st.add(towers)
+      const TW2 = []
+      for (const [x, h, wd] of tp)
+        for (let k = 0; k < 18; k++) TW2.push(x + (Math.random() - 0.5) * wd * 0.8, 2 + Math.random() * (h - 4), -245)
+      const twg = new THREE.BufferGeometry()
+      twg.setAttribute('position', new THREE.Float32BufferAttribute(TW2, 3))
+      st.add(new THREE.Points(twg, new THREE.PointsMaterial({ color: '#ffe0a8', size: 0.7, transparent: true, opacity: 0.75, depthWrite: false })))
+
+      // 본관's terraced lawn and the steps up to it, lanterns either side.
+      const terr = new THREE.MeshStandardMaterial({ color: '#2e2a2b', roughness: 0.9 })
+      for (const [w, h, d, z] of [[90, 1.2, 18, -128], [70, 1.2, 14, -138]]) {
+        const tb = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), terr)
+        tb.position.set(0, h / 2 + (z < -130 ? 1.2 : 0), z)
+        st.add(tb)
+      }
+      for (let k = 0; k < 6; k++) {
+        const s1 = new THREE.Mesh(new THREE.BoxGeometry(14, 0.4, 1.2), new THREE.MeshStandardMaterial({ color: '#8f8a84', roughness: 0.9 }))
+        s1.position.set(0, 0.2 + k * 0.4, -118 - k * 1.2)
+        st.add(s1)
+      }
+      const lampM = new THREE.MeshBasicMaterial({ color: '#ffd9a0' })
+      for (const x of [-9, 9, -30, 30]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 4, 8), new THREE.MeshStandardMaterial({ color: '#1d1a18' }))
+        post.position.set(x, 2, -116)
+        st.add(post)
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), lampM)
+        bulb.position.set(x, 4.2, -116)
+        st.add(bulb)
+      }
+      // The statue of 인촌 before 본관, and 호상 (the white tiger on its globe)
+      // at the side of the plaza: the campus's own figures, watching.
+      const bronze = new THREE.MeshStandardMaterial({ color: '#4a3b2a', metalness: 0.7, roughness: 0.4 })
+      const pale = new THREE.MeshStandardMaterial({ color: '#cfc9bf', roughness: 0.85 })
+      const inchon = new THREE.Group()
+      inchon.add(new THREE.Mesh(new THREE.BoxGeometry(3.2, 4.2, 3.2).translate(0, 2.1, 0), pale))
+      inchon.add(new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.8, 2.9, 16).translate(0, 4.2 + 1.45, 0), bronze))
+      inchon.add(new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.55, 0.9, 16).translate(0, 4.2 + 3.3, 0), bronze))
+      inchon.add(new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 12).translate(0, 4.2 + 4.05, 0), bronze))
+      inchon.position.set(0, 0, -106)
+      st.add(inchon)
+      const hosang = new THREE.Group()
+      hosang.add(new THREE.Mesh(new THREE.CylinderGeometry(3, 3.4, 1.4, 32).translate(0, 0.7, 0), pale))
+      hosang.add(new THREE.Mesh(new THREE.SphereGeometry(2.2, 32, 20).translate(0, 1.4 + 2.1, 0), new THREE.MeshStandardMaterial({ color: '#b9b5ad', roughness: 0.8 })))
+      // The stone tiger, crouched along the top: body, head, tail.
+      const marble = new THREE.MeshStandardMaterial({ color: '#e6e2da', roughness: 0.7 })
+      hosang.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.8, 2.6, 6, 12).rotateZ(Math.PI / 2).translate(0, 6.1, 0), marble))
+      hosang.add(new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 12).translate(2.1, 6.4, 0), marble))
+      hosang.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.18, 1.8, 4, 8).rotateZ(-0.9).translate(-2.4, 6.6, 0), marble))
+      for (const [lx, lz] of [[1.2, 0.5], [1.2, -0.5], [-1.2, 0.5], [-1.2, -0.5]]) hosang.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.7, 4, 8).translate(lx, 5.3, lz), marble))
+      hosang.position.set(-38, 0, -28)
+      hosang.rotation.y = 0.5
+      st.add(hosang)
+    }
     // The tiger stands on the granite terrace in front of the crowd, as if
     // on 본관's front steps, looking out over them.
     const terraceM = new THREE.MeshStandardMaterial({ color: '#3d3836', roughness: 0.85 })
@@ -669,6 +805,7 @@ export class Gate {
     this.skyU.uK.value = reveal
     this.skyU.uDawn.value = dawn
     this.windowGlow.color.setRGB(1, 0.78, 0.47).multiplyScalar(0.12 + 0.88 * S(sto, 0.05, 0.6))
+    this.backGlow.color.setRGB(1, 0.78, 0.47).multiplyScalar(0.3 + 0.7 * S(sto, 0.1, 0.7))
     this.stageKey.intensity = reveal * (0.5 + 1.6 * dawn)
     this.stageRim.intensity = reveal * (0.6 + 2.2 * dawn)
     this.crowdU.uTime.value = t
