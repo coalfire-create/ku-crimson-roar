@@ -2,6 +2,7 @@ import './style.css'
 import gsap from 'gsap'
 import * as THREE from 'three'
 import Lenis from 'lenis'
+import { Rivalry } from './scenes/rivalry.js'
 import { ShaderCanvas } from './shader-canvas.js'
 import { AURORA } from './scenes/shaders.js'
 import { Hero3D } from './scenes/hero3d.js'
@@ -269,6 +270,7 @@ async function boot() {
     const heart = new Heart(document.getElementById('cvHeart'))
     const aurora = new ShaderCanvas(document.getElementById('cvAurora'), AURORA, { maxDpr: 1, uniforms: { uEnergy: 0, uBeat: 0 } })
     const flight = new AnamFlight(document.getElementById('cvFlight'))
+    const rivalry = new Rivalry(document.getElementById('cvRivalry'))
     if (import.meta.env.DEV) window.__flight = flight
     chapterReady = flight.terrainReady
     // The campus tiger's roar: the growl and a jolt through the frame.
@@ -305,6 +307,8 @@ async function boot() {
       },
       { el: document.getElementById('frontier'), view: flight },
       { el: document.getElementById('fields'), view: fields },
+      { el: document.getElementById('rivalry'), view: rivalry },
+      { el: document.getElementById('symbols'), view: { render() {} } },
       {
         el: document.getElementById('gate'),
         view: {
@@ -336,7 +340,7 @@ async function boot() {
       const parts = el.innerHTML.split(/<br\s*\/?>/i)
       el.innerHTML = parts.map((p) => `<span class="line"><span class="line__in">${p.trim()}</span></span>`).join('')
     }
-    document.querySelectorAll('.fortress__head .h2, .pride__copy .h2, .flight__head .h2, .gate__title').forEach(splitLines)
+    document.querySelectorAll('.fortress__head .h2, .pride__copy .h2, .flight__head .h2, .rivalry__copy .h2, .symbols__head .h2, .gate__title').forEach(splitLines)
     document.querySelectorAll('.gate__top, .gate__row').forEach((el) => el.classList.add('gate-extra'))
     scenes.slice(1).forEach((s) => {
       s.lines = s.el.querySelectorAll('.line__in')
@@ -837,6 +841,41 @@ async function boot() {
     })
     document.getElementById('vsClose').addEventListener('click', () => ((vs.hidden = true), lenis.start()))
 
+    /* 고연전: the five results come up one by one, then the title. */
+    const GAMES = [
+      ['야구', 2, 0],
+      ['농구', 69, 53],
+      ['빙구', 1, 2],
+      ['축구', 1, 2],
+      ['럭비', 35, 11],
+    ]
+    const scoreEl = document.getElementById('score')
+    const scoreRows = GAMES.map(([name, ku, yu]) => {
+      const li = document.createElement('li')
+      li.innerHTML = `<b>${name}</b><span class="ku">${ku}</span><span class="score__vs">:</span><span class="yu">${yu}</span><span class="res ${ku > yu ? 'win' : ''}">${ku > yu ? '승' : '패'}</span>`
+      scoreEl.appendChild(li)
+      return li
+    })
+    const totalEl = document.getElementById('rivalryTotal')
+    const rivalryEl = document.getElementById('rivalry')
+    const updateRivalry = () => {
+      const p = progress(rivalryEl)
+      rivalry.progress = p
+      scoreRows.forEach((li, i) => li.classList.toggle('is-on', p > 0.26 + i * 0.08))
+      totalEl.classList.toggle('is-on', p > 0.7)
+    }
+    /* 상징: three cards stand up in turn, like pages turning toward you. */
+    const symEls = [...document.querySelectorAll('.sym')]
+    const symbolsEl = document.getElementById('symbols')
+    const updateSymbols = () => {
+      const p = progress(symbolsEl)
+      symEls.forEach((el, i) => {
+        const k = ease(clamp01((p - 0.05 - i * 0.12) / 0.18))
+        el.style.opacity = k.toFixed(3)
+        el.style.transform = `rotateX(${((1 - k) * 55).toFixed(2)}deg) translateY(${((1 - k) * 40).toFixed(1)}px)`
+      })
+    }
+
     return (dt) => {
       transitions()
       heroTick(dt)
@@ -847,7 +886,9 @@ async function boot() {
       flightHead.style.opacity = 1 - clamp01((fp - 0.06) / 0.04)
       fields.progress = progress(scenes[4].el)
       if (scenes[4].on) showField()
-      gate.progress = progress(scenes[5].el)
+      gate.progress = progress(document.getElementById('gate'))
+      updateRivalry()
+      updateSymbols()
       // Once dawn floods in, the finale's text turns to ink.
 
 

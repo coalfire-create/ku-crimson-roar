@@ -34,12 +34,12 @@ import { AER, AER_GLSL, NIGHT, FOCUS, buildingMaterial, STYLE as BST, offsetPoly
 export const TARGETS = [
   { key: 'gate', name: '정문', en: 'Main Gate', body: '안암로에서 올려다보이는 석조 정문. 고려대의 모든 이야기가 시작되는 곳.' },
   { key: 'tiger', name: '호상', en: 'Tiger Statue', body: '고려대의 상징, 호랑이. 캠퍼스 한가운데서 안암을 지킨다.' },
-  { hall: '중앙도서관', name: '중앙도서관', en: 'Central Library', body: '밤늦도록 불이 꺼지지 않는 지성의 심장.' },
+  { hall: '중앙도서관', name: '중앙도서관', en: 'Central Library', body: '밤늦도록 불이 꺼지지 않는 지성의 심장. 앞 중앙광장 잔디 아래엔 지하 열람실이 있다.' },
   { hall: '경영본관', name: '경영본관', en: 'Business School', body: '현대자동차경영관·LG-POSCO경영관과 함께 경영대학을 이루는 석조 건물.' },
   { hall: '백주년기념삼성관', name: '백주년기념삼성관', en: 'Centennial Samsung Hall', body: '개교 100주년을 기념해 세운 고딕 양식의 건물.' },
   { hall: '본관', name: '본관', en: 'Main Hall', body: '1934년 완공된 화강암 고딕 건물. 국가 사적으로 지정된 고려대의 얼굴.' },
-  { hall: '인촌기념관', name: '인촌기념관', en: 'Inchon Memorial Hall', body: '고려대 발전의 기틀을 닦은 인촌 김성수를 기리는 건물. 입학식과 졸업식이 열린다.' },
-  { hall: '하나과학관 A동', name: '하나과학관', en: 'Hana Science Hall', body: '애기능 너머 자연계 캠퍼스. 이공계 연구의 중심.' },
+  { hall: '인촌기념관', name: '인촌기념관', en: 'Inchon Memorial Hall', body: '인촌의 묘소가 있던 자리에 탄생 100주년(1991)을 맞아 세운 기념관. 입학식과 졸업식이 열린다.' },
+  { hall: '하나과학관 A동', name: '하나과학관', en: 'Hana Science Hall', body: '\'애기능 캠퍼스\'라 불리는 자연계 캠퍼스. 정조의 후궁 원빈 홍씨의 능 터에서 이름이 왔다.' },
 ]
 
 const T = WORLD.terrain

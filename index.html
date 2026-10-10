@@ -46,6 +46,7 @@
         <a href="#pride">입실렌티</a>
         <a href="#frontier">캠퍼스</a>
         <a href="#fields">선도 학문</a>
+        <a href="#rivalry">고연전</a>
         <a href="#gate">입학</a>
       </nav>
       <div class="nav__right">
@@ -217,12 +218,72 @@
         </div>
       </section>
 
-      <!-- 05 ENTER THE ANAM: the stone gate opens -->
+      <!-- 05 고연전: the 2026 정기전, won 3–2; the stands as a card section -->
+      <section class="scene rivalry" id="rivalry">
+        <div class="scene__sticky">
+          <canvas class="scene__canvas" id="cvRivalry"></canvas>
+          <div class="rivalry__copy">
+            <span class="kicker">05 — 2026 정기 고연전</span>
+            <h2 class="h2">붉은 물결,<br />종합우승.</h2>
+            <p class="body">10월 2–3일, 잠실과 목동을 붉게 물들인 이틀. 고려대가 3승 2패로 연세대를 꺾고 정기전 종합우승을 차지했습니다.</p>
+          </div>
+          <div class="score">
+            <div class="rivalry__total" id="rivalryTotal">
+              <span class="rivalry__badge">종합우승</span>
+              <b>3승 2패</b>
+              <small>최근 5년 4승 1무 · 통산 22승 11무 20패</small>
+            </div>
+            <div class="score__head"><span></span><span>고려대</span><span></span><span>연세대</span><span></span></div>
+            <ol id="score"></ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- 06 상징: crimson, the tiger, makgeolli -->
+      <section class="scene symbols" id="symbols">
+        <div class="scene__sticky">
+          <div class="symbols__head">
+            <span class="kicker">06 — SYMBOLS · 고려대의 상징</span>
+            <h2 class="h2">크림슨, 호랑이,<br />그리고 막걸리.</h2>
+          </div>
+          <div class="symbols__cards">
+            <article class="sym">
+              <div class="sym__art sym__art--crimson"><span></span><span></span><span></span></div>
+              <small>COLOR</small>
+              <h3>크림슨</h3>
+              <p>깊고 진한 붉은빛. 고연전의 관중석도, 입실렌티의 객석도 이 한 색으로 물듭니다.</p>
+            </article>
+            <article class="sym">
+              <div class="sym__art sym__art--tiger"><img src="/brand/ku-emblem.png" alt="고려대학교 교표" /></div>
+              <small>MASCOT</small>
+              <h3>호랑이</h3>
+              <p>용맹과 기개의 상징. 교표 속 호랑이가 안암을 지키고, 캠퍼스 한가운데엔 호상이 서 있습니다.</p>
+            </article>
+            <article class="sym">
+              <div class="sym__art sym__art--makgeolli">
+                <svg viewBox="0 0 160 120" aria-hidden="true">
+                  <ellipse cx="80" cy="44" rx="62" ry="14" fill="#efe6d4" />
+                  <path d="M18 44 Q22 104 80 106 Q138 104 142 44 Z" fill="#c9b48a" />
+                  <path d="M18 44 Q22 104 80 106 Q138 104 142 44" fill="none" stroke="#8a6f45" stroke-width="3" />
+                  <ellipse cx="80" cy="44" rx="62" ry="14" fill="none" stroke="#8a6f45" stroke-width="3" />
+                  <ellipse cx="80" cy="47" rx="52" ry="9" fill="#f7f1e4" />
+                  <path d="M58 112 h44" stroke="#8a6f45" stroke-width="5" stroke-linecap="round" />
+                </svg>
+              </div>
+              <small>SPIRIT</small>
+              <h3>막걸리</h3>
+              <p>서민적이고 소탈한 기질을 담은 상징주. 가장 오래 불려 온 응원가 〈막걸리 찬가〉도 여기서 나왔습니다.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 07 ENTER THE ANAM: the stone gate opens -->
       <section class="scene gate" id="gate">
         <div class="scene__sticky">
           <canvas class="scene__canvas" id="cvGate"></canvas>
           <div class="gate__top">
-            <span class="eyebrow">05 — ENTER THE ANAM</span>
+            <span class="eyebrow">07 — ENTER THE ANAM</span>
             <span class="eyebrow">KOREA UNIVERSITY</span>
           </div>
           <div class="gate__body">

@@ -2178,3 +2178,303 @@ button.pill:not([class*='pill--']) {
     overflow: hidden;
   }
 }
+
+/* ---------- 05 고연전 ---------- */
+.rivalry {
+  height: 300vh;
+}
+.rivalry .scene__sticky {
+  background: #09030a;
+}
+.rivalry__copy {
+  position: absolute;
+  left: var(--gutter);
+  bottom: 9vh;
+  z-index: 2;
+  max-width: 440px;
+}
+.rivalry__copy .h2 {
+  text-shadow: 0 4px 30px rgba(0, 0, 0, 0.8);
+}
+.score {
+  position: absolute;
+  right: var(--gutter);
+  bottom: 9vh;
+  z-index: 2;
+  width: min(440px, 40vw);
+  list-style: none;
+  border-radius: 16px;
+  padding: 10px 20px;
+  background: rgba(14, 6, 10, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.score li {
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+}
+.score li:last-child {
+  border-bottom: 0;
+}
+.score li.is-on {
+  opacity: 1;
+  transform: none;
+}
+.score li > b:first-child {
+  font-weight: 700;
+  color: #fff;
+}
+.score .ku,
+.score .yu {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.score .ku {
+  text-align: right;
+  color: #ff4d6a;
+}
+.score .yu {
+  color: #7fa6ff;
+}
+.score .score__vs {
+  font-family: var(--grotesk);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-align: center;
+}
+.score .res {
+  justify-self: end;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.1);
+}
+.score .res.win {
+  background: #c8102e;
+  color: #fff;
+}
+.score ol {
+  list-style: none;
+}
+.score__head,
+.score li {
+  display: grid;
+  grid-template-columns: 56px 1fr 18px 1fr 36px;
+  align-items: center;
+  gap: 10px;
+}
+.score__head {
+  padding: 8px 0 2px;
+  font-family: var(--grotesk);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.5);
+}
+.score__head span:nth-child(2) {
+  text-align: right;
+}
+.rivalry__total {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 12px 0 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  opacity: 0.25;
+  transition: opacity 0.6s var(--ease);
+}
+.rivalry__total.is-on {
+  opacity: 1;
+}
+.rivalry__badge {
+  align-self: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #c8102e;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 24px rgba(255, 40, 60, 0.6);
+}
+.rivalry__total b {
+  font-size: clamp(30px, 3vw, 44px);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.rivalry__total small {
+  width: 100%;
+  font-family: var(--grotesk);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.7);
+}
+@media (max-width: 760px) {
+  .rivalry__copy {
+    top: 41vh;
+    bottom: auto;
+    right: var(--gutter);
+  }
+  .rivalry__copy .body {
+    display: none;
+  }
+  .score {
+    left: var(--gutter);
+    right: var(--gutter);
+    width: auto;
+    bottom: 24px;
+    padding: 4px 14px;
+  }
+  .score li {
+    padding: 7px 0;
+  }
+}
+
+/* ---------- 06 상징 ---------- */
+.symbols {
+  height: 320vh;
+}
+.symbols .scene__sticky {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 var(--gutter);
+  background: radial-gradient(80% 60% at 50% 70%, #3a0812, #0d0508 70%);
+}
+.symbols__head {
+  margin-bottom: 4vh;
+}
+.symbols__cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(14px, 2vw, 28px);
+  perspective: 1200px;
+}
+.sym {
+  padding: 26px 24px 28px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  backdrop-filter: blur(10px);
+  transform-origin: 50% 100%;
+  opacity: 0;
+}
+.sym small {
+  display: block;
+  margin-top: 20px;
+  font-family: var(--grotesk);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--sky);
+}
+.sym h3 {
+  margin-top: 6px;
+  font-size: clamp(26px, 2.6vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.sym p {
+  margin-top: 10px;
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: rgba(246, 241, 236, 0.78);
+}
+.sym__art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: clamp(130px, 18vh, 190px);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.sym__art--crimson {
+  position: relative;
+  background: #a50034;
+  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.35);
+}
+.sym__art--crimson span {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 34%;
+  background: rgba(0, 0, 0, 0.18);
+  transform-origin: left;
+  animation: sym-wave 3.2s ease-in-out infinite;
+}
+.sym__art--crimson span:nth-child(2) {
+  height: 22%;
+  background: rgba(255, 255, 255, 0.08);
+  animation-delay: -1s;
+}
+.sym__art--crimson span:nth-child(3) {
+  height: 12%;
+  background: rgba(0, 0, 0, 0.22);
+  animation-delay: -2s;
+}
+@keyframes sym-wave {
+  50% {
+    transform: scaleY(1.5) skewY(-4deg);
+  }
+}
+.sym__art--tiger {
+  background: radial-gradient(circle at 50% 45%, #f4ede0, #d9cdb8);
+}
+.sym__art--tiger img {
+  display: block;
+  height: 80%;
+  width: auto;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.3));
+}
+.sym__art--makgeolli {
+  background: radial-gradient(circle at 50% 40%, #4a3a24, #241a10);
+}
+.sym__art--makgeolli svg {
+  width: 62%;
+  height: auto;
+  animation: sym-tilt 4s ease-in-out infinite;
+}
+@keyframes sym-tilt {
+  50% {
+    transform: rotate(-4deg) translateY(-3px);
+  }
+}
+@media (max-width: 760px) {
+  .symbols .scene__sticky {
+    justify-content: flex-start;
+    padding-top: 92px;
+  }
+  .symbols__cards {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .sym {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    column-gap: 14px;
+    padding: 12px;
+  }
+  .sym__art {
+    grid-row: span 3;
+    height: 92px;
+  }
+  .sym small {
+    margin-top: 0;
+  }
+  .sym h3 {
+    font-size: 22px;
+    margin-top: 2px;
+  }
+  .sym p {
+    font-size: 12.5px;
+    line-height: 1.6;
+    margin-top: 4px;
+  }
+}
