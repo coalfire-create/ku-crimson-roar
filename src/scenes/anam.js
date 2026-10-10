@@ -653,7 +653,6 @@ export class AnamFlight {
     this.#populate()
     await frame()
     this.#buildPaws()
-    this.#buildRibbon()
   }
 
   // Safe-height map: the highest thing (ground, roof, tower, tree, statue) in
@@ -1409,17 +1408,16 @@ export class AnamFlight {
     this.scene.add(this.sparkles)
   }
 
-  // 정문: a granite gatehouse on the axis 정문 – 중앙광장 – 본관. Two great
-  // gothic towers with corner buttresses, battlements and pinnacles carry a
-  // pointed main arch; the name in gold across it and the shield on a crest
-  // stone above. Lower wings either side, each with a pedestrian arch and a
-  // turret, then railings out to lamp piers. Iron gates stand open, banners
-  // hang on the towers, lanterns and floodlights warm it at night.
+  // 정문, as it stands on 안암로: two mirrored granite gatehouses either side
+  // of an open road (no beam across it). Each has a tall crenellated tower on
+  // the road side, its faces ribbed with buttresses capped by little gables,
+  // then a wall pierced by a great arch with a lion's-head keystone, then a
+  // lower outer tower. Tall sliding iron gates stand folded open at the
+  // towers, round planters sit across the road, and 본관 is framed between.
   #buildGate() {
     const b = DATA.buildings.find((x) => x.gate)
     if (!b) return
     const o = obb(b.p)
-    // Straddle the road: centred on it where it passes the gate, square to it.
     let best = 0
     let bd = Infinity
     for (let k = 0; k <= 600; k++) {
@@ -1433,31 +1431,36 @@ export class AnamFlight {
     g.position.set(at.x, 0, at.z)
     g.rotation.y = -Math.atan2(tan.x, -tan.z) // local x runs across the road
 
-    // Dressed granite: ashlar courses, each block a slightly different grey.
-    const ashlar = (() => {
+    // Rock-faced grey granite: coursed blocks, each a different grey.
+    const rubble = (() => {
       const c = document.createElement('canvas')
       c.width = c.height = 512
       const x = c.getContext('2d')
-      let seed = 11
+      let seed = 23
       const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
-      const rows = 8
+      const rows = 10
       const rh = 512 / rows
       for (let r = 0; r < rows; r++) {
-        let cx = r % 2 ? -64 : 0
+        let cx = -rnd() * 60
         while (cx < 512) {
-          const w = 96 + rnd() * 64
-          const v = 200 + rnd() * 30
-          x.fillStyle = `rgb(${v},${v - 4},${v - 12})`
+          const w = 50 + rnd() * 70
+          const v = 150 + rnd() * 45
+          x.fillStyle = `rgb(${v - 4},${v},${v + 4})`
           x.fillRect(cx, r * rh, w, rh)
-          for (let k = 0; k < 40; k++) {
-            x.fillStyle = `rgba(90,80,70,${rnd() * 0.08})`
+          // Rock face: a lit upper edge, a shadowed lower one, pitting.
+          x.fillStyle = 'rgba(255,255,255,0.12)'
+          x.fillRect(cx + 3, r * rh + 3, w - 6, 5)
+          x.fillStyle = 'rgba(0,0,0,0.16)'
+          x.fillRect(cx + 3, r * rh + rh - 9, w - 6, 6)
+          for (let k = 0; k < 30; k++) {
+            x.fillStyle = `rgba(40,40,44,${rnd() * 0.18})`
             x.fillRect(cx + rnd() * w, r * rh + rnd() * rh, 3, 3)
           }
-          x.fillStyle = 'rgba(70,62,56,0.55)'
+          x.fillStyle = 'rgba(55,55,60,0.7)'
           x.fillRect(cx, r * rh, 3, rh)
           cx += w
         }
-        x.fillStyle = 'rgba(70,62,56,0.55)'
+        x.fillStyle = 'rgba(55,55,60,0.7)'
         x.fillRect(0, r * rh, 512, 3)
       }
       const t = new THREE.CanvasTexture(c)
@@ -1466,11 +1469,10 @@ export class AnamFlight {
       t.anisotropy = 8
       return t
     })()
-    const stoneM = new THREE.MeshStandardMaterial({ map: ashlar, color: '#d9d2c4', roughness: 0.88 })
-    const trimM = new THREE.MeshStandardMaterial({ color: '#a9a090', roughness: 0.85 })
+    const stoneM = new THREE.MeshStandardMaterial({ map: rubble, color: '#c9cbcc', roughness: 0.92 })
+    const trimM = new THREE.MeshStandardMaterial({ color: '#9fa1a3', roughness: 0.88 })
     const stoneGeos = []
     const trimGeos = []
-    // World-scale UVs (one texture tile = 4 m) so courses line up everywhere.
     const worldUV = (geo) => {
       const p = geo.attributes.position
       const n = geo.attributes.normal
@@ -1478,320 +1480,219 @@ export class AnamFlight {
       for (let i = 0; i < p.count; i++) {
         const ax = Math.abs(n.getX(i))
         const ay = Math.abs(n.getY(i))
-        const u = ay > 0.5 ? p.getX(i) : ax > 0.5 ? p.getZ(i) : p.getX(i)
-        const v = ay > 0.5 ? p.getZ(i) : p.getY(i)
-        uv.setXY(i, u / 4, v / 4)
+        uv.setXY(i, (ay > 0.5 ? p.getX(i) : ax > 0.5 ? p.getZ(i) : p.getX(i)) / 4, (ay > 0.5 ? p.getZ(i) : p.getY(i)) / 4)
       }
       return geo
     }
-    const box = (w, h, d, x, y, z, trim = false) => {
-      const geo = worldUV(new THREE.BoxGeometry(w, h, d).translate(x, y, z))
-      ;(trim ? trimGeos : stoneGeos).push(geo)
+    const box = (w, h, d, x, y, z, trim = false) => (trim ? trimGeos : stoneGeos).push(worldUV(new THREE.BoxGeometry(w, h, d).translate(x, y, z)).toNonIndexed())
+    // A little gable cap (a pinnacle's roof) on a buttress.
+    const gablet = (w, d, h, x, y, z) => {
+      const s = new THREE.Shape([new THREE.Vector2(-w / 2, 0), new THREE.Vector2(w / 2, 0), new THREE.Vector2(0, h)])
+      const geo = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false })
+      geo.translate(x, y, z - d / 2)
+      trimGeos.push(geo.toNonIndexed())
     }
-    const add = (mesh) => {
-      mesh.castShadow = mesh.receiveShadow = true
-      g.add(mesh)
-      return mesh
+    // A buttress strip up a face: steps in, gabled at each set-off.
+    const buttress = (x, z, h, w, d) => {
+      box(w, h * 0.55, d, x, h * 0.275, z)
+      gablet(w, d, 0.7, x, h * 0.55, z)
+      box(w * 0.8, h * 0.4, d * 0.8, x, h * 0.55 + h * 0.2, z)
+      gablet(w * 0.8, d * 0.8, 0.9, x, h * 0.95, z)
     }
-    // Pointed arch outline (w wide, springing at s, apex at h) for holes.
-    const pointed = (w, s, h, x0 = 0) => {
-      const r = w / 2
-      const p = new THREE.Path()
-      p.moveTo(x0 - r, 0)
-      p.lineTo(x0 - r, s)
-      p.quadraticCurveTo(x0 - r, s + (h - s) * 0.75, x0, h)
-      p.quadraticCurveTo(x0 + r, s + (h - s) * 0.75, x0 + r, s)
-      p.lineTo(x0 + r, 0)
-      p.closePath()
-      return p
+    // Crenellations along the top edge of a block (both long faces).
+    const crenels = (cx, y, w, d, n, h = 0.9) => {
+      for (let k = 0; k < n; k++) {
+        const t = -w / 2 + (w / n) * (k + 0.5)
+        box((w / n) * 0.55, h, 0.5, cx + t, y + h / 2, d / 2 - 0.25)
+        box((w / n) * 0.55, h, 0.5, cx + t, y + h / 2, -d / 2 + 0.25)
+      }
+      for (let k = 0; k < Math.max(2, Math.round(n * (d / w))); k++) {
+        const m = Math.max(2, Math.round(n * (d / w)))
+        const t = -d / 2 + (d / m) * (k + 0.5)
+        box(0.5, h, (d / m) * 0.55, cx - w / 2 + 0.25, y + h / 2, t)
+        box(0.5, h, (d / m) * 0.55, cx + w / 2 - 0.25, y + h / 2, t)
+      }
     }
-    // A wall slab of depth d with arch holes, in the local x-y plane.
-    const slab = (x0, x1, y1, d, holes) => {
+    // A wall slab with an arch hole, in the local x-y plane.
+    const archWall = (x0, x1, y1, d, aw, spring, apex) => {
       const sh = new THREE.Shape()
       sh.moveTo(x0, 0)
       sh.lineTo(x1, 0)
       sh.lineTo(x1, y1)
       sh.lineTo(x0, y1)
       sh.closePath()
-      sh.holes = holes
-      const geo = new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: false, curveSegments: 16 })
+      const m = (x0 + x1) / 2
+      const r = aw / 2
+      const hole = new THREE.Path()
+      hole.moveTo(m - r, 0)
+      hole.lineTo(m - r, spring)
+      // A slightly pointed (four-centred) arch, nearly round.
+      hole.bezierCurveTo(m - r, spring + (apex - spring) * 0.75, m - r * 0.45, apex, m, apex)
+      hole.bezierCurveTo(m + r * 0.45, apex, m + r, spring + (apex - spring) * 0.75, m + r, spring)
+      hole.lineTo(m + r, 0)
+      hole.closePath()
+      sh.holes = [hole]
+      const geo = new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: false, curveSegments: 20 })
       geo.translate(0, 0, -d / 2)
       stoneGeos.push(worldUV(geo.toNonIndexed()))
-    }
-    const battlements = (cx, y, w, d, n) => {
-      for (let k = 0; k < n; k++) {
-        const t = -w / 2 + (w / n) * (k + 0.5)
-        box(w / n / 1.8, 1.1, 0.45, cx + t, y + 0.55, d / 2 - 0.2)
-        box(w / n / 1.8, 1.1, 0.45, cx + t, y + 0.55, -d / 2 + 0.2)
+      // The arch ring: a moulded band round the opening on both faces.
+      for (const f of [1, -1]) {
+        const ring = new THREE.Shape()
+        const R = r + 0.55
+        const A = apex + 0.5
+        ring.moveTo(m - R, spring - 0.3)
+        ring.bezierCurveTo(m - R, spring + (A - spring) * 0.75, m - R * 0.45, A, m, A)
+        ring.bezierCurveTo(m + R * 0.45, A, m + R, spring + (A - spring) * 0.75, m + R, spring - 0.3)
+        ring.lineTo(m + r, spring - 0.3)
+        ring.lineTo(m + r, spring)
+        ring.bezierCurveTo(m + r, spring + (apex - spring) * 0.75, m + r * 0.45, apex, m, apex)
+        ring.bezierCurveTo(m - r * 0.45, apex, m - r, spring + (apex - spring) * 0.75, m - r, spring)
+        ring.lineTo(m - r, spring - 0.3)
+        ring.closePath()
+        const rg = new THREE.ExtrudeGeometry(ring, { depth: 0.25, bevelEnabled: false, curveSegments: 20 })
+        rg.translate(0, 0, f > 0 ? d / 2 : -d / 2 - 0.25)
+        trimGeos.push(rg.toNonIndexed())
+        // The lion's head on the keystone.
+        const lion = new THREE.SphereGeometry(0.42, 12, 10).scale(1, 1.1, 0.6).translate(m, apex + 0.15, f * (d / 2 + 0.3))
+        trimGeos.push(lion.toNonIndexed())
       }
     }
+    const iron = (this.#ironMat ??= this.#makeIron())
 
-    // Emblem and banner art.
-    const crest = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.4, color: '#f2ece2' })
-    const bc = document.createElement('canvas')
-    bc.width = 300
-    bc.height = 900
-    const bannerTex = new THREE.CanvasTexture(bc)
-    bannerTex.colorSpace = THREE.SRGBColorSpace
-    bannerTex.anisotropy = 8
-    const drawBanner = (img) => {
-      const x = bc.getContext('2d')
-      x.fillStyle = '#8f0f22'
-      x.fillRect(0, 0, 300, 900)
-      x.strokeStyle = '#d9b46a'
-      x.lineWidth = 8
-      x.strokeRect(16, 16, 268, 868)
-      if (img) {
-        const h = 250
-        const w = (h * img.naturalWidth) / img.naturalHeight
-        x.drawImage(img, 150 - w / 2, 70, w, h)
-      }
-      x.fillStyle = '#f4ede0'
-      x.font = '900 130px "Noto Serif KR", serif'
-      x.textAlign = 'center'
-      x.textBaseline = 'middle'
-      x.fillText('高', 150, 450)
-      x.fillText('大', 150, 610)
-      x.font = '700 34px "Pretendard Variable", Pretendard, sans-serif'
-      x.fillText('SINCE 1905', 150, 790)
-      bannerTex.needsUpdate = true
-    }
-    drawBanner(null)
-    new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}brand/ku-emblem.png`, (t) => {
-      t.colorSpace = THREE.SRGBColorSpace
-      t.anisotropy = 8
-      crest.map = t
-      crest.color.set('#ffffff')
-      crest.needsUpdate = true
-      drawBanner(t.image)
-    })
-    // Floodlight from below: a warm wash fading up the faces.
-    const wash = document.createElement('canvas')
-    wash.width = 4
-    wash.height = 128
-    {
-      const x = wash.getContext('2d')
-      const gr = x.createLinearGradient(0, 128, 0, 0)
-      gr.addColorStop(0, 'rgba(255,190,110,0.55)')
-      gr.addColorStop(0.55, 'rgba(255,170,90,0.18)')
-      gr.addColorStop(1, 'rgba(255,160,80,0)')
-      x.fillStyle = gr
-      x.fillRect(0, 0, 4, 128)
-    }
-    const washMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(wash), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })
-    const glass = new THREE.MeshBasicMaterial({ color: '#ffc874' })
-    const glassGeo = []
-    const lancetGeo = (w, h) => {
-      const s = new THREE.Shape()
-      const r = w * 0.5
-      s.moveTo(-r, 0)
-      s.lineTo(-r, h - w)
-      s.quadraticCurveTo(-r, h - w * 0.25, 0, h)
-      s.quadraticCurveTo(r, h - w * 0.25, r, h - w)
-      s.lineTo(r, 0)
-      return new THREE.ShapeGeometry(s, 8)
-    }
-    const windowAt = (w, h, x, y, z, back) => {
-      const geo = lancetGeo(w, h)
-      if (back) geo.rotateY(Math.PI)
-      glassGeo.push(geo.translate(x, y, z))
-    }
-
-    const span = THREE.MathUtils.clamp(o.L * 0.9, 16, 22)
-    const TW = 6 // great tower width
-    const TH = 22 // to the parapet
-    const D = 6 // depth of the gatehouse
-    const SPRING = 9.5
-    const APEX = 15
+    const span = THREE.MathUtils.clamp(o.L * 0.9, 14, 20)
+    const TW = 4.6 // tall tower, across
+    const TD = 5.2 // and along the road
+    const TH = 17
+    const WL = 9.5 // arch wall length
+    const WH = 10.5
+    const WD = 3.0
+    const OW = 3.4 // outer tower
+    const OH = 13.5
     for (const s of [-1, 1]) {
-      const x = s * (span / 2 + TW / 2)
-      // Great tower: plinth, shaft, string courses, corbelled parapet.
-      box(TW + 1, 1.4, D + 1, x, 0.7, 0, true)
-      box(TW, TH, D, x, TH / 2, 0)
-      for (const y of [SPRING, APEX + 0.6]) box(TW + 0.35, 0.4, D + 0.35, x, y, 0, true)
-      box(TW + 0.9, 0.6, D + 0.9, x, TH + 0.3, 0, true)
-      battlements(x, TH + 0.6, TW + 0.9, D + 0.9, 4)
-      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        // Stepped corner buttresses up the tower, a pinnacle crowning each.
-        const bx = x + (cx * TW) / 2
-        const bz = (cz * D) / 2
-        box(1.1, TH * 0.55, 1.1, bx, TH * 0.275, bz)
-        box(0.85, TH * 0.35, 0.85, bx, TH * 0.55 + TH * 0.175, bz)
-        box(0.75, 2.4, 0.75, bx, TH + 1.6, bz, true)
-        const pin = new THREE.Mesh(new THREE.ConeGeometry(0.55, 3.6, 4), trimM)
-        pin.rotation.y = Math.PI / 4
-        pin.position.set(bx, TH + 4.6, bz)
-        add(pin)
-      }
-      // Pyramid roof between the pinnacles.
-      const roof = new THREE.Mesh(new THREE.ConeGeometry(TW * 0.62, 4.5, 4), new THREE.MeshStandardMaterial({ color: '#3c3a44', roughness: 0.6 }))
-      roof.rotation.y = Math.PI / 4
-      roof.position.set(x, TH + 3.0, 0)
-      add(roof)
-      for (const f of [1, -1]) {
-        const z = f * (D / 2 + 0.02)
-        // Paired lancets high up, a tall single one between the string courses.
-        for (const wx of [-0.9, 0.9]) windowAt(1.0, 4.0, x + wx, APEX + 1.5, z, f < 0)
-        windowAt(0.8, 2.6, x, 3.2, z, f < 0)
-        const ban = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 6.6), new THREE.MeshStandardMaterial({ map: bannerTex, roughness: 0.9 }))
-        ban.position.set(x, SPRING - 0.2 - 3.3 + 3.9, z + f * 0.28)
-        ban.position.y = 10.1 + 3.3 - 3.0
-        if (f < 0) ban.rotation.y = Math.PI
-        g.add(ban)
-        const fl = new THREE.Mesh(new THREE.PlaneGeometry(TW + 1.2, 16), washMat)
-        fl.position.set(x, 8, z + f * 0.26)
-        if (f < 0) fl.rotation.y = Math.PI
-        g.add(fl)
-      }
-      // Lanterns on brackets either side of the main arch, both faces.
-      for (const f of [1, -1]) {
-        const lx = x - s * (TW / 2 - 0.6)
-        box(0.18, 0.18, 0.9, lx, 7.2, f * (D / 2 + 0.45), true)
-        const cage = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.95, 0.6), new THREE.MeshStandardMaterial({ color: '#1d1a18', roughness: 0.5, metalness: 0.6 }))
-        cage.position.set(lx, 6.6, f * (D / 2 + 0.9))
-        g.add(cage)
-        const glow = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffd59a' }))
-        glow.position.copy(cage.position)
-        g.add(glow)
-      }
-      // Iron gate leaves, swung open against the tower's inner face.
-      const leaf = new THREE.Mesh(new THREE.PlaneGeometry(D - 0.6, 6.5), (this.#ironMat ??= this.#makeIron()))
-      leaf.rotation.y = Math.PI / 2
-      leaf.position.set(x - s * (TW / 2 + 0.12), 3.25, 0)
-      g.add(leaf)
-
-      // The wing: a wall with a pedestrian arch, then a turret.
+      const tx = s * (span / 2 + TW / 2)
+      // Tall tower: base course, shaft, parapet with battlements.
+      box(TW + 0.5, 0.9, TD + 0.5, tx, 0.45, 0, true)
+      box(TW, TH, TD, tx, TH / 2, 0)
+      box(TW + 0.5, 0.45, TD + 0.5, tx, TH + 0.2, 0, true)
+      crenels(tx, TH + 0.4, TW + 0.5, TD + 0.5, 4)
+      // Buttresses on every corner and up the middle of the road faces.
+      for (const cx of [-1, 1]) for (const cz of [-1, 1]) buttress(tx + cx * (TW / 2 + 0.05), cz * (TD / 2 + 0.05), TH * 1.04, 0.85, 0.85)
+      for (const cz of [-1, 1]) buttress(tx, cz * (TD / 2 + 0.25), TH * 0.95, 0.7, 0.5)
+      buttress(tx - s * (TW / 2 + 0.25), 0, TH * 0.95, 0.5, 0.7)
+      // Arch wall, then the outer tower.
       const w0 = s * (span / 2 + TW)
-      const WL = 7
-      const wx0 = Math.min(w0, w0 + s * WL)
-      const wx1 = Math.max(w0, w0 + s * WL)
-      const mid = (wx0 + wx1) / 2
-      slab(wx0, wx1, 11, 3.6, [pointed(3.2, 4.2, 6.6, mid)])
-      box(WL + 0.2, 0.5, 4.0, mid, 11.25, 0, true)
-      battlements(mid, 11.5, WL, 4.0, 4)
+      const x0 = Math.min(w0, w0 + s * WL)
+      const x1 = Math.max(w0, w0 + s * WL)
+      archWall(x0, x1, WH, WD, 5.6, 5.4, 8.3)
+      box(WL, 0.4, WD + 0.4, (x0 + x1) / 2, WH + 0.2, 0, true)
+      crenels((x0 + x1) / 2, WH + 0.4, WL, WD + 0.4, 6, 0.7)
+      const ox = w0 + s * (WL + OW / 2)
+      box(OW + 0.4, 0.8, 3.8 + 0.4, ox, 0.4, 0, true)
+      box(OW, OH, 3.8, ox, OH / 2, 0)
+      box(OW + 0.4, 0.4, 4.2, ox, OH + 0.2, 0, true)
+      crenels(ox, OH + 0.4, OW + 0.4, 4.2, 3)
+      for (const cx of [-1, 1]) for (const cz of [-1, 1]) buttress(ox + cx * (OW / 2 + 0.02), cz * 1.92, OH * 1.02, 0.6, 0.6)
+      // Iron: the tall sliding gate folded open into the road at the tower,
+      // and a small gate standing open in the arch.
       for (const f of [1, -1]) {
-        const fl = new THREE.Mesh(new THREE.PlaneGeometry(WL, 10), washMat)
-        fl.position.set(mid, 5, f * 1.95)
+        const leaf = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 7.2), iron)
+        leaf.position.set(tx - s * (TW / 2 + 2.4), 3.6, f * 1.6)
+        leaf.rotation.y = Math.PI / 2 + s * f * 0.12
+        g.add(leaf)
+      }
+      const small = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 4.6), iron)
+      small.position.set((x0 + x1) / 2 + 1.6, 2.3, -WD / 2 - 1.2)
+      small.rotation.y = Math.PI / 2
+      g.add(small)
+      // Floodlight from below on the road faces.
+      for (const f of [1, -1]) {
+        const fl = new THREE.Mesh(new THREE.PlaneGeometry(TW + 1, 15), this.gateWashMat ??= this.#gateWash())
+        fl.position.set(tx, 7, f * (TD / 2 + 0.55))
         if (f < 0) fl.rotation.y = Math.PI
         g.add(fl)
-        windowAt(0.7, 2.0, mid, 8.0, f * 1.82, f < 0)
+        const fw = new THREE.Mesh(new THREE.PlaneGeometry(WL, 9), this.gateWashMat)
+        fw.position.set((x0 + x1) / 2, 4.5, f * (WD / 2 + 0.32))
+        if (f < 0) fw.rotation.y = Math.PI
+        g.add(fw)
       }
-      const tx = w0 + s * (WL + 1.8)
-      box(4.0, 1.0, 4.6, tx, 0.5, 0, true)
-      box(3.6, 15, 4.2, tx, 7.5, 0)
-      box(4.1, 0.5, 4.7, tx, 15.25, 0, true)
-      battlements(tx, 15.5, 4.1, 4.7, 3)
-      const tr = new THREE.Mesh(new THREE.ConeGeometry(2.4, 4.2, 4), new THREE.MeshStandardMaterial({ color: '#3c3a44', roughness: 0.6 }))
-      tr.rotation.y = Math.PI / 4
-      tr.position.set(tx, 17.6, 0)
-      add(tr)
-      for (const f of [1, -1]) windowAt(0.8, 2.8, tx, 10.5, f * 2.12, f < 0)
-      // Railings out to a lamp pier.
-      const rx = tx + s * 7
-      box(10, 1.2, 0.9, rx, 0.6, 0, true)
-      const rail = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 1.8), this.#ironMat)
-      rail.position.set(rx, 2.1, 0)
-      g.add(rail)
-      box(1.5, 3.8, 1.5, tx + s * 12.6, 1.9, 0)
-      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), new THREE.MeshBasicMaterial({ color: '#ffe3b8' }))
-      globe.position.set(tx + s * 12.6, 4.2, 0)
-      g.add(globe)
+      // A small bronze plaque with the name on each tall tower's road face.
+      const plaque = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.6), this.gatePlaqueMat ??= this.#gatePlaque())
+      plaque.position.set(tx, 3.2, TD / 2 + 0.03)
+      g.add(plaque)
     }
-    // The main arch: a pointed soffit between the towers, deep as the towers.
-    {
-      const w = span
-      slab(-w / 2, w / 2, TH - 2, D - 0.6, [pointed(w, SPRING, APEX)])
-      box(w + 0.4, 0.5, D + 0.2, 0, TH - 1.75, 0, true)
-      battlements(0, TH - 1.5, w, D + 0.2, 7)
-      // Arch mouldings: a trim band following the arch on both faces.
-      for (const f of [1, -1]) {
-        const sh = new THREE.Shape()
-        const r = w / 2
-        sh.moveTo(-r - 0.6, 0)
-        sh.lineTo(-r - 0.6, SPRING)
-        sh.quadraticCurveTo(-r - 0.6, SPRING + (APEX + 0.8 - SPRING) * 0.75, 0, APEX + 0.8)
-        sh.quadraticCurveTo(r + 0.6, SPRING + (APEX + 0.8 - SPRING) * 0.75, r + 0.6, SPRING)
-        sh.lineTo(r + 0.6, 0)
-        sh.lineTo(r, 0)
-        sh.holes = []
-        sh.lineTo(r, SPRING)
-        sh.quadraticCurveTo(r, SPRING + (APEX - SPRING) * 0.75, 0, APEX)
-        sh.quadraticCurveTo(-r, SPRING + (APEX - SPRING) * 0.75, -r, SPRING)
-        sh.lineTo(-r, 0)
-        sh.closePath()
-        const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.35, bevelEnabled: false, curveSegments: 16 })
-        geo.translate(0, 0, f > 0 ? (D - 0.6) / 2 : -(D - 0.6) / 2 - 0.35)
-        trimGeos.push(geo.toNonIndexed())
-      }
-      // The name, gold on dark granite, both faces.
-      const c = document.createElement('canvas')
-      c.width = 1536
-      c.height = 220
-      const x = c.getContext('2d')
-      x.fillStyle = '#231a17'
-      x.fillRect(0, 0, 1536, 220)
-      x.strokeStyle = '#c9a25a'
-      x.lineWidth = 8
-      x.strokeRect(12, 12, 1512, 196)
-      x.fillStyle = '#efcf83'
-      x.font = '900 140px "Noto Serif KR", serif'
-      x.textAlign = 'center'
-      x.textBaseline = 'middle'
-      x.fillText('高 麗 大 學 校', 768, 118)
-      const t = new THREE.CanvasTexture(c)
-      t.colorSpace = THREE.SRGBColorSpace
-      t.anisotropy = 8
-      const pw = Math.min(w * 0.7, 13)
-      for (const f of [1, -1]) {
-        const plaque = new THREE.Mesh(new THREE.PlaneGeometry(pw, pw * (220 / 1536)), new THREE.MeshBasicMaterial({ map: t, color: '#e0d8c8' }))
-        plaque.position.set(0, (APEX + 0.8 + TH - 2) / 2, f * ((D - 0.6) / 2 + 0.03))
-        if (f < 0) plaque.rotation.y = Math.PI
-        g.add(plaque)
-      }
-      // Crest: a shield of granite over the middle, the emblem on both faces.
-      const CH = 6.4
-      const CW = CH * 0.8
-      const shield = new THREE.Shape()
-      shield.moveTo(-CW / 2, CH)
-      shield.lineTo(CW / 2, CH)
-      shield.lineTo(CW / 2, CH * 0.42)
-      shield.quadraticCurveTo(CW / 2, CH * 0.1, 0, 0)
-      shield.quadraticCurveTo(-CW / 2, CH * 0.1, -CW / 2, CH * 0.42)
-      shield.closePath()
-      const sg = new THREE.ExtrudeGeometry(shield, { depth: 1.2, bevelEnabled: true, bevelThickness: 0.15, bevelSize: 0.2, bevelSegments: 2, curveSegments: 12 })
-      sg.translate(0, TH - 1.0, -0.6)
-      trimGeos.push(sg.toNonIndexed())
-      const eh = CH * 0.78
-      const ew = (eh * 593) / 797
-      for (const f of [1, -1]) {
-        const em = new THREE.Mesh(new THREE.PlaneGeometry(ew, eh), crest)
-        em.position.set(0, TH - 1.0 + CH * 0.52, f * 0.78)
-        if (f < 0) em.rotation.y = Math.PI
-        g.add(em)
-      }
+    // Round planters with clipped shrubs, across the road just inside.
+    const potM = new THREE.MeshStandardMaterial({ color: '#8d8a84', roughness: 0.85 })
+    const shrubM = new THREE.MeshStandardMaterial({ color: '#2f5a2a', roughness: 0.9 })
+    for (const px of [-0.36, -0.12, 0.12, 0.36]) {
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.65, 0.8, 20), potM)
+      pot.position.set(px * span, 0.4, -4)
+      pot.castShadow = pot.receiveShadow = true
+      g.add(pot)
+      const shrub = new THREE.Mesh(new THREE.SphereGeometry(0.85, 16, 12), shrubM)
+      shrub.scale.set(1, 0.85, 1)
+      shrub.position.set(px * span, 1.25, -4)
+      shrub.castShadow = true
+      g.add(shrub)
     }
-    add(new THREE.Mesh(mergeGeometries(stoneGeos.map((x) => (x.index ? x.toNonIndexed() : x))), stoneM))
-    add(new THREE.Mesh(mergeGeometries(trimGeos.map((x) => (x.index ? x.toNonIndexed() : x)).map((x) => (x.deleteAttribute('uv'), x))), trimM))
-    g.add(new THREE.Mesh(mergeGeometries(glassGeo.map((x) => (x.index ? x.toNonIndexed() : x))), glass))
-    // Warm light pooled under the arch.
+    const stone = new THREE.Mesh(mergeGeometries(stoneGeos), stoneM)
+    stone.castShadow = stone.receiveShadow = true
+    g.add(stone)
+    const trim = new THREE.Mesh(mergeGeometries(trimGeos.map((x) => (x.deleteAttribute('uv'), x))), trimM)
+    trim.castShadow = trim.receiveShadow = true
+    g.add(trim)
+    // Warm light between the gatehouses.
     const lamp = new THREE.PointLight('#ffbf7a', 30, 40, 1.6)
-    lamp.position.set(0, 8, 0)
+    lamp.position.set(0, 7, 0)
     g.add(lamp)
     this.gateLight = lamp
     this.gate = g
     this.scene.add(g)
-    // The gate shot frames the whole gatehouse.
+    // The gate shot frames both gatehouses, 본관 between them.
     const tg = this.targets?.find((t) => t.key === 'gate')
     if (tg) {
-      const r = span / 2 + TW + 4
+      const r = span / 2 + TW + 3
       tg.anchor.x = at.x
       tg.anchor.z = at.z
-      tg.foot = { x0: at.x - r, x1: at.x + r, z0: at.z - r, z1: at.z + r, base: null, h: 26 }
+      tg.foot = { x0: at.x - r, x1: at.x + r, z0: at.z - r, z1: at.z + r, base: null, h: 20 }
     }
     // Which way along the road is campus: toward 본관.
     const main = DATA.buildings.filter((x) => x.n === '본관').map((x) => obb(x.p))[0]
     this.gateIn = tan.clone()
     if (main && (main.cx - at.x) * tan.x + (main.cz - at.z) * tan.z < 0) this.gateIn.negate()
+  }
+
+  #gateWash() {
+    const c = document.createElement('canvas')
+    c.width = 4
+    c.height = 128
+    const x = c.getContext('2d')
+    const gr = x.createLinearGradient(0, 128, 0, 0)
+    gr.addColorStop(0, 'rgba(255,190,110,0.5)')
+    gr.addColorStop(0.55, 'rgba(255,170,90,0.15)')
+    gr.addColorStop(1, 'rgba(255,160,80,0)')
+    x.fillStyle = gr
+    x.fillRect(0, 0, 4, 128)
+    return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })
+  }
+
+  #gatePlaque() {
+    const c = document.createElement('canvas')
+    c.width = 512
+    c.height = 192
+    const x = c.getContext('2d')
+    x.fillStyle = '#3a2c1c'
+    x.fillRect(0, 0, 512, 192)
+    x.strokeStyle = '#c9a25a'
+    x.lineWidth = 8
+    x.strokeRect(10, 10, 492, 172)
+    x.fillStyle = '#e8c77e'
+    x.font = '900 92px "Noto Serif KR", serif'
+    x.textAlign = 'center'
+    x.textBaseline = 'middle'
+    x.fillText('高麗大學校', 256, 100)
+    const t = new THREE.CanvasTexture(c)
+    t.colorSpace = THREE.SRGBColorSpace
+    return new THREE.MeshStandardMaterial({ map: t, roughness: 0.45, metalness: 0.6 })
   }
 
   #ironMat
@@ -2022,55 +1923,6 @@ export class AnamFlight {
 
   // Tiger pawprints along the tour, left and right in turn, left behind by
   // the running tiger and glowing hottest just behind it.
-  // The tiger's road on the map: a crimson dashed line edged in white,
-  // lying on the ground, seen from above before the tour dives in.
-  #buildRibbon() {
-    const L = this.route.getLength()
-    const n = Math.ceil(L / 3)
-    const pos = []
-    const uv = []
-    const idx = []
-    for (let k = 0; k <= n; k++) {
-      const t = k / n
-      const p = this.route.getPointAt(t)
-      const d = this.route.getTangentAt(t).setY(0).normalize()
-      const sx = -d.z * 4.5
-      const sz = d.x * 4.5
-      const y = this.groundAt(p.x, p.z) + 0.6
-      pos.push(p.x + sx, y, p.z + sz, p.x - sx, y, p.z - sz)
-      uv.push(t * L, 0, t * L, 1)
-      if (k < n) idx.push(k * 2, k * 2 + 1, k * 2 + 2, k * 2 + 1, k * 2 + 3, k * 2 + 2)
-    }
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
-    g.setIndex(idx)
-    this.ribbon = new THREE.Mesh(
-      g,
-      new THREE.ShaderMaterial({
-        uniforms: { uOpacity: { value: 1 } },
-        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-        fragmentShader: `uniform float uOpacity; varying vec2 vUv;
-          void main(){
-            float across = abs(vUv.y - 0.5) * 2.0;
-            float dash = step(0.3, fract(vUv.x / 22.0));
-            vec3 c = across > 0.62 ? vec3(1.0) : vec3(0.78, 0.06, 0.14);
-            float a = (across > 0.62 ? 1.0 : dash) * uOpacity;
-            if (a < 0.01) discard;
-            gl_FragColor = vec4(c, a);
-          }`,
-        transparent: true,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        polygonOffset: true,
-        polygonOffsetFactor: -6,
-      }),
-    )
-    this.ribbon.frustumCulled = false
-    this.ribbon.renderOrder = 2
-    this.scene.add(this.ribbon)
-  }
-
   #buildPaws() {
     const prints = []
     const L = this.route.getLength()
@@ -2263,7 +2115,6 @@ export class AnamFlight {
     // How much of the illustrated map is showing (route ribbon, pins).
     this.map = this.free ? 0 : 1 - THREE.MathUtils.smoothstep(this.u, SHOWS_START * 0.75, SHOWS_START + 0.02)
     // The map's road line goes before the view reaches the ground.
-    if (this.ribbon) this.ribbon.material.uniforms.uOpacity.value = THREE.MathUtils.smoothstep(this.map, 0.55, 0.95)
     // From afar, clear air: every hall reads, right out to the edge of campus.
     const focus = Math.max(this.map, this.overview ?? 0)
     FOCUS.value = focus

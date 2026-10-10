@@ -174,9 +174,12 @@ export class Gate {
     const backOf = new THREE.MeshStandardMaterial({ color: '#e4dccd', roughness: 1, side: THREE.BackSide })
     const panel = (k) => {
       // One third of the page: k = 0 bottom, 1 middle, 2 top.
-      const geo = new THREE.PlaneGeometry(LW, LH / 3)
+      // A touch taller than a third (its texture stretched to match), so the
+      // panels overlap at the creases instead of leaving a hairline gap.
+      const over = 1.012
+      const geo = new THREE.PlaneGeometry(LW, (LH / 3) * over)
       const uv = geo.attributes.uv
-      for (let i = 0; i < uv.count; i++) uv.setY(i, (k + uv.getY(i)) / 3)
+      for (let i = 0; i < uv.count; i++) uv.setY(i, (k + 0.5 + (uv.getY(i) - 0.5) * over) / 3)
       const m = new THREE.Mesh(geo, face)
       m.add(new THREE.Mesh(geo, backOf))
       return m
@@ -195,6 +198,12 @@ export class Gate {
     bot.position.y = -LH / 6
     this.foldBot.add(bot)
     this.letter.add(this.foldTop, this.foldBot)
+    // Fully opened, the three panels give way to one whole sheet: no seams.
+    this.sheet = new THREE.Mesh(new THREE.PlaneGeometry(LW, LH), face)
+    this.sheet.add(new THREE.Mesh(this.sheet.geometry, backOf))
+    this.sheet.visible = false
+    this.letter.add(this.sheet)
+    this.panels = this.letter.children.filter((c) => c !== this.sheet)
     this.env.add(back, this.letter, front, this.flapPivot)
     this.scene.add(this.env)
 
@@ -571,8 +580,17 @@ export class Gate {
     const rise = S(p, 0.34, 0.46)
     const come = S(p, 0.44, 0.56)
     const lower = S(p, 0.7, 0.8)
-    this.foldTop.rotation.x = Math.PI * (1 - S(p, 0.52, 0.6))
-    this.foldBot.rotation.x = -Math.PI * (1 - S(p, 0.56, 0.64))
+    const openTop = S(p, 0.52, 0.6)
+    const openBot = S(p, 0.56, 0.64)
+    this.foldTop.rotation.x = Math.PI * (1 - openTop)
+    this.foldBot.rotation.x = -Math.PI * (1 - openBot)
+    // Folded, the panels sit a hair apart so they never fight; opened out,
+    // they lie exactly flush, one unbroken sheet.
+    this.foldTop.position.z = 0.008 * (1 - openTop)
+    this.foldBot.position.z = 0.004 * (1 - openBot)
+    const flat = openTop > 0.999 && openBot > 0.999
+    this.sheet.visible = flat
+    for (const c of this.panels) c.visible = !flat
     const sink = come * 3.4
     this.env.position.y -= sink
     const big = this.portrait ? 1.4 : 1

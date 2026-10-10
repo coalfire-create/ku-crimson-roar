@@ -496,6 +496,9 @@ async function boot() {
       const a = LINEUP.acts[i]
       actEls.No.textContent = a.head ? 'HEADLINER' : `${String(i + 1).padStart(2, '0')} / ${String(n).padStart(2, '0')}`
       actEls.Name.textContent = a.name
+      // Long names (올데이 프로젝트) step down so the whole name always fits.
+      const len = [...a.name].length
+      actEls.Name.style.fontSize = len > 4 ? `min(clamp(54px, 9vw, 140px), ${(88 / len).toFixed(1)}vw)` : ''
       actEls.En.textContent = a.en
       actEls.Sub.textContent = a.sub || ''
       actEl.classList.toggle('is-head', !!a.head)

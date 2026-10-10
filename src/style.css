@@ -1201,7 +1201,16 @@ button.pill:not([class*='pill--']) {
   top: 96px;
   left: var(--gutter);
   z-index: 2;
+  max-width: 460px;
+  padding: 18px 22px 20px;
+  margin-left: -22px;
+  /* Readable over the bright screens: a soft shadow pooled behind the words. */
+  background: radial-gradient(120% 100% at 30% 45%, rgba(8, 4, 6, 0.72), rgba(8, 4, 6, 0) 75%);
   pointer-events: none;
+}
+.pride__copy .h2,
+.pride__copy .body {
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
 }
 .pride__copy .hint {
   pointer-events: none;
@@ -1621,6 +1630,8 @@ button.pill:not([class*='pill--']) {
 }
 .act__name {
   margin-top: 6px;
+  max-width: 100%;
+  white-space: nowrap;
   font-size: clamp(54px, 9vw, 140px);
   font-weight: 800;
   letter-spacing: -0.04em;
@@ -1655,7 +1666,14 @@ button.pill:not([class*='pill--']) {
   top: 110px;
   right: var(--gutter);
   z-index: 2;
-  width: 220px;
+  width: 250px;
+  padding: 16px 18px 14px;
+  /* A dark glass card: the LED tower behind it is bright and busy. */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(10, 6, 8, 0.74);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   pointer-events: none;
 }
 .lineup__title {
@@ -1676,7 +1694,8 @@ button.pill:not([class*='pill--']) {
   gap: 10px;
   padding: 7px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.32);
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
   transition: color 0.5s, transform 0.5s var(--ease);
 }
 .lineup__list li b {
@@ -1689,11 +1708,10 @@ button.pill:not([class*='pill--']) {
   letter-spacing: 0.12em;
 }
 .lineup__list li.is-past {
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(255, 255, 255, 0.4);
 }
 .lineup__list li.is-on {
   color: #fff;
-  transform: translateX(-8px);
 }
 .lineup__list li.is-on b::before {
   content: '● ';
@@ -1710,7 +1728,7 @@ button.pill:not([class*='pill--']) {
     display: none;
   }
   .act {
-    bottom: 150px;
+    bottom: 220px;
   }
   .beams i {
     width: 40vw;
