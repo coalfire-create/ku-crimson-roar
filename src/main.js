@@ -124,27 +124,6 @@ async function boot() {
       roarSound()
     } catch {}
   }
-  // The shield, once its embers have gathered, becomes the crisp emblem: it
-  // brightens in place, holds a moment, then glides up into the nav's logo.
-  let crestTl = null
-  hero.onEmblem = (r) => {
-    const img = document.createElement('img')
-    img.src = `${import.meta.env.BASE_URL}brand/ku-emblem.png`
-    img.className = 'hero-crest'
-    img.alt = ''
-    const w = (r.h * 593) / 797
-    Object.assign(img.style, { left: `${r.x - w / 2}px`, top: `${r.y - r.h / 2}px`, height: `${r.h}px` })
-    document.body.appendChild(img)
-    const nav = document.querySelector('.nav__emblem').getBoundingClientRect()
-    const dx = nav.left + nav.width / 2 - r.x
-    const dy = nav.top + nav.height / 2 - r.y
-    crestTl = gsap
-      .timeline({ onComplete: () => img.remove() })
-      .fromTo(img, { opacity: 0, filter: 'brightness(1.8) blur(3px)' }, { opacity: 1, filter: 'brightness(1) blur(0px)', duration: 0.7, ease: 'power2.out' })
-      .to(img, { x: dx, y: dy, scale: nav.height / r.h, duration: 1.2, ease: 'expo.inOut' }, '+=1.6')
-      .to(img, { opacity: 0, duration: 0.25 }, '-=0.15')
-      .fromTo('.nav__emblem', { scale: 1.35 }, { scale: 1, duration: 0.6, ease: 'back.out(3)' }, '-=0.2')
-  }
   // The first scroll wakes it too: the same growl and jolt.
   hero.onRoar = () => {
     blastT = 0
@@ -179,8 +158,6 @@ async function boot() {
   const startLeap = () => {
     if (leapRun || !chapterTick || !introDone || scrollY > 4) return false
     leapRun = { t: 0, went: false }
-    // Leaving mid-ceremony: the emblem simply fades.
-    if (crestTl?.isActive()) (crestTl.kill(), gsap.to('.hero-crest', { opacity: 0, duration: 0.3, onComplete: () => document.querySelectorAll('.hero-crest').forEach((e) => e.remove()) }))
     return true
   }
   addEventListener('wheel', (e) => e.deltaY > 4 && startLeap(), { passive: true })
@@ -285,6 +262,13 @@ async function boot() {
   )
   await intro
   introDone = true
+  // A breath after the intro the tiger roars, and the emblem above the title
+  // comes up with a sweep of light across it.
+  gsap
+    .timeline({ delay: 0.5 })
+    .call(() => hero.roar())
+    .fromTo('.hero__crest', { opacity: 0, y: 14, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 1.1, ease: 'expo.out' }, 0.25)
+    .fromTo('.hero__crest', { '--shine': '-60%' }, { '--shine': '160%', duration: 1.4, ease: 'power2.inOut' }, 0.6)
   if (import.meta.env.DEV) window.__marks.introDone = performance.now()
   lenis.start()
 
@@ -487,6 +471,9 @@ async function boot() {
     const beams = document.getElementById('beams')
     document.getElementById('lineupTitle').textContent = `${LINEUP.year} IPSELENTI · ${LINEUP.edition}`
     document.getElementById('lineupNote').textContent = LINEUP.note
+    // Desktop: the video card lives in the lineup panel, under the list,
+    // clear of the act's name in the middle of the stage.
+    if (innerWidth >= 760) document.querySelector('.lineup').appendChild(document.getElementById('stageScreen') ?? document.querySelector('.stage-screen'))
     const lineupItems = LINEUP.acts.map((a) => {
       const li = document.createElement('li')
       li.innerHTML = `<b>${a.name}</b><small>${a.en}</small>`

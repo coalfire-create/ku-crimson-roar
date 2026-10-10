@@ -23,7 +23,6 @@ const CLOTH_VERT = /* glsl */ `
   vec3 wave(vec2 p){
     float t = uTime;
     float a = sin(p.x * 0.35 + t * 1.3) * 1.2 + sin(p.x * 0.8 - t * 1.9 + p.y * 0.3) * 0.45 + sin(p.y * 0.5 + t * 0.9) * 0.6;
-    a += sin(p.x * 1.7 + p.y * 1.1 - t * 2.6) * 0.18;
     // Free toward the right edge, held at the left (the pole).
     float hold = smoothstep(-20.0, -6.0, p.x);
     return vec3(0.0, sin(p.x * 0.6 + t * 1.5) * 0.25 * hold, a * hold * (1.0 + uGust));
@@ -52,12 +51,11 @@ const CLOTH_FRAG = /* glsl */ `
     vec3 v = normalize(cameraPosition - vW);
     float diff = max(dot(n, normalize(uLight)), 0.0);
     // Silk: a soft sheen along the folds, deep shadow in the troughs.
-    float sheen = pow(1.0 - abs(dot(n, v)), 2.5);
-    float spec = pow(max(dot(reflect(-normalize(uLight), n), v), 0.0), 24.0);
+    float sheen = pow(1.0 - abs(dot(n, v)), 2.0);
+    // A broad, soft highlight: a tight one sparkles and flickers as the folds move.
+    float spec = pow(max(dot(reflect(-normalize(uLight), n), v), 0.0), 8.0);
     vec3 base = vec3(0.3, 0.0, 0.045);
-    vec3 col = base * (0.18 + diff * 1.1) + vec3(0.7, 0.08, 0.14) * sheen * 0.35 + vec3(1.0, 0.6, 0.55) * spec * 0.22;
-    // A fine weave.
-    col *= 0.94 + 0.06 * sin(vUv.x * 900.0) * sin(vUv.y * 600.0);
+    vec3 col = base * (0.18 + diff * 1.1) + vec3(0.7, 0.08, 0.14) * sheen * 0.35 + vec3(1.0, 0.6, 0.55) * spec * 0.12;
     gl_FragColor = vec4(col, 1.0);
   }
 `

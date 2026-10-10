@@ -16,68 +16,6 @@ import { RunTiger } from './runTiger.js'
 
 const SCALE = 0.026 // a big male: about 5 m nose to tail
 
-// The opening: the tiger roars, bursts into embers, and the embers gather
-// into the university's shield; a breath later they flow back into the
-// tiger. Each particle starts on the tiger's (skinned) surface and ends on a
-// pixel of the emblem, swinging out on a curve between the two.
-const MORPH_VERT = /* glsl */ `
-  attribute vec3 aTo;
-  attribute vec3 aCol;
-  attribute float aSeed;
-  uniform float uM, uTime, uSize, uFlash, uFade;
-  varying vec3 vCol;
-  varying float vA;
-  void main(){
-    float d = aSeed * 0.35;
-    float m = clamp((uM - d) / 0.65, 0.0, 1.0);
-    float e = m * m * (3.0 - 2.0 * m);
-    vec3 swirl = vec3(sin(aSeed * 40.0 + uTime * 1.3), cos(aSeed * 31.0 + uTime), sin(aSeed * 17.0 + uTime * 0.7));
-    vec3 mid = mix(position, aTo, 0.5) + swirl * 0.9 + vec3(0.0, 0.4, 0.6);
-    vec3 p = (1.0 - e) * (1.0 - e) * position + 2.0 * (1.0 - e) * e * mid + e * e * aTo;
-    // Settled, the shield breathes a little.
-    p += swirl * 0.012 * e;
-    vCol = mix(vec3(1.0, 0.45, 0.15), aCol, smoothstep(0.55, 1.0, e));
-    // A sweep of light across the shield as it locks into place.
-    float sweep = exp(-pow((aTo.x + aTo.y * 0.6) * 1.2 - (1.0 - uFlash) * 6.0 + 3.0, 2.0) * 2.0);
-    vCol += vec3(1.0, 0.85, 0.55) * (uFlash * 0.5 + sweep * uFlash) * e;
-    // Faint sparks lifting off the coat at first, the shield brighter as it
-    // forms; then gone as the crisp emblem takes their place.
-    vA = smoothstep(0.0, 0.08, uM) * mix(0.35, 1.0, e) * (1.0 - uFade);
-    vec4 mv = modelViewMatrix * vec4(p, 1.0);
-    gl_Position = projectionMatrix * mv;
-    gl_PointSize = uSize * mix(2.2, 1.0, e) / -mv.z;
-  }
-`
-const MORPH_FRAG = /* glsl */ `
-  varying vec3 vCol;
-  varying float vA;
-  void main(){
-    float r = length(gl_PointCoord - 0.5);
-    float a = smoothstep(0.5, 0.15, r) * vA;
-    if (a < 0.02) discard;
-    gl_FragColor = vec4(vCol * 1.25, a);
-  }
-`
-// The exit: the tiger breaks into embers that swirl up and drift toward the
-// viewer, glowing hottest as they go, and fade.
-const DUST_VERT = /* glsl */ `
-  attribute float aSeed;
-  uniform float uE, uTime, uSize;
-  varying vec3 vCol;
-  varying float vA;
-  void main(){
-    float e = clamp((uE - aSeed * 0.3) / 0.7, 0.0, 1.0);
-    vec3 sw = vec3(sin(aSeed * 40.0 + uTime * 2.0), cos(aSeed * 31.0 + uTime * 1.7), sin(aSeed * 17.0 + uTime * 1.3));
-    // Spread out quickly, so it reads as sparks rather than a glowing mass.
-    float spread = sqrt(e);
-    vec3 p = position + sw * spread * 0.9 + vec3(0.0, e * e * (1.2 + aSeed * 2.8) + spread * 0.3, e * (0.4 + aSeed * 2.2));
-    vCol = mix(vec3(1.0, 0.4, 0.1), vec3(1.0, 0.75, 0.4), aSeed) * 0.55;
-    vA = smoothstep(0.0, 0.04, uE) * (1.0 - smoothstep(0.45, 1.0, e)) * mix(0.35, 0.8, spread);
-    vec4 mv = modelViewMatrix * vec4(p, 1.0);
-    gl_Position = projectionMatrix * mv;
-    gl_PointSize = uSize * mix(1.2, 2.2, e) / -mv.z;
-  }
-`
 const FLOOR = 0
 
 const EMBER_VERT = /* glsl */ `
@@ -273,158 +211,6 @@ export class Hero3D {
     addEventListener('resize', () => this.resize())
   }
 
-  // The morph's start points, sampled off the posed tiger a few thousand per
-  // frame while the intro plays, so building it never stalls a frame.
-  #prepMorph() {
-    if (this.prep?.done) return true
-    if (!this.prep) {
-      const meshes = []
-      this.tiger.group.traverse((o) => o.isSkinnedMesh && !o.userData.shell && meshes.push(o))
-      if (!meshes.length) return false
-      const N = innerWidth < 760 ? 14000 : 30000
-      this.prep = { src: meshes[0], N, i: 0, from: new Float32Array(N * 3), seed: new Float32Array(N), done: false }
-    }
-    const P = this.prep
-    P.src.updateMatrixWorld(true)
-    const pos = P.src.geometry.attributes.position
-    const v = new THREE.Vector3()
-    const end = Math.min(P.N, P.i + 2500)
-    for (; P.i < end; P.i++) {
-      const k = Math.floor(Math.random() * pos.count)
-      v.fromBufferAttribute(pos, k)
-      P.src.applyBoneTransform(k, v)
-      v.applyMatrix4(P.src.matrixWorld)
-      P.from.set([v.x, v.y, v.z], P.i * 3)
-      P.seed[P.i] = Math.random()
-    }
-    if (P.i >= P.N) P.done = true
-    return P.done
-  }
-
-  // The emblem morph and the exit's embers, once the start points are in:
-  // targets on the shield (cheap), and both shaders compiled up front.
-  #buildMorph() {
-    const img = this.emblem
-    const { N, from, seed } = this.prep
-    const to = new Float32Array(N * 3)
-    const col = new Float32Array(N * 3)
-    const v = new THREE.Vector3()
-    const cw = 220
-    const ch = Math.round((cw * img.naturalHeight) / img.naturalWidth)
-    const cv = document.createElement('canvas')
-    cv.width = cw
-    cv.height = ch
-    const g = cv.getContext('2d', { willReadFrequently: true })
-    g.drawImage(img, 0, 0, cw, ch)
-    const px = g.getImageData(0, 0, cw, ch).data
-    const on = []
-    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (px[(y * cw + x) * 4 + 3] > 128) on.push([x, y])
-    // Where the shield stands: big and square to the camera, in the open
-    // part of the frame (right of the title; on phones, the upper half).
-    const D = 4.2
-    const vh = 2 * D * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))
-    const vw = vh * this.camera.aspect
-    const fwd = this.camera.getWorldDirection(new THREE.Vector3())
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion)
-    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion)
-    const H = vh * (this.portrait ? 0.26 : 0.34)
-    const W = (H * cw) / ch
-    const c0 = this.camera.position.clone().addScaledVector(fwd, D).addScaledVector(right, this.portrait ? 0 : vw * 0.02).addScaledVector(up, this.portrait ? vh * 0.24 : vh * 0.2)
-    this.emb = { c0, up, H }
-    for (let i = 0; i < N; i++) {
-      const [x, y] = on[Math.floor(Math.random() * on.length)]
-      const ox = (x / cw - 0.5) * W + (Math.random() - 0.5) * (W / cw)
-      const oy = (0.5 - y / ch) * H + (Math.random() - 0.5) * (H / ch)
-      v.copy(c0).addScaledVector(right, ox).addScaledVector(up, oy).addScaledVector(fwd, (Math.random() - 0.5) * 0.02)
-      to.set([v.x, v.y, v.z], i * 3)
-      const o = (y * cw + x) * 4
-      col.set([(px[o] / 255) ** 2.2, (px[o + 1] / 255) ** 2.2, (px[o + 2] / 255) ** 2.2], i * 3)
-    }
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(from, 3))
-    geo.setAttribute('aTo', new THREE.BufferAttribute(to, 3))
-    geo.setAttribute('aCol', new THREE.BufferAttribute(col, 3))
-    geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1))
-    this.morphU = { uM: { value: 0 }, uTime: { value: 0 }, uFlash: { value: 0 }, uFade: { value: 0 }, uSize: { value: 13 * this.renderer.getPixelRatio() } }
-    this.morph = new THREE.Points(geo, new THREE.ShaderMaterial({ uniforms: this.morphU, vertexShader: MORPH_VERT, fragmentShader: MORPH_FRAG, transparent: true, depthWrite: false }))
-    this.morph.frustumCulled = false
-    this.scene.add(this.morph)
-    // The exit: the same points, blown up and away as embers.
-    this.dustU = { uE: { value: 0 }, uTime: { value: 0 }, uSize: this.morphU.uSize }
-    this.dust = new THREE.Points(geo, new THREE.ShaderMaterial({ uniforms: this.dustU, vertexShader: DUST_VERT, fragmentShader: MORPH_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }))
-    this.dust.frustumCulled = false
-    this.scene.add(this.dust)
-    // Compile both in the background (parallel shader compile where the
-    // browser has it), not on their first frame.
-    // Neither is drawn until its shader is ready: a first draw before then
-    // would make the browser finish compiling on the spot, and stall.
-    // (compile only visits visible objects, so both are shown for the call.)
-    this.morphReady = false
-    this.morph.visible = this.dust.visible = true
-    const jobs = [this.renderer.compileAsync(this.morph, this.camera, this.scene), this.renderer.compileAsync(this.dust, this.camera, this.scene)]
-    this.morph.visible = this.dust.visible = false
-    Promise.all(jobs)
-      .catch(() => {})
-      .finally(() => {
-        // Drawn (fully transparent) from here on, so their buffers are on the
-        // GPU before the moment they appear.
-        this.morphReady = true
-        this.morph.visible = this.dust.visible = true
-      })
-    this.seq = 0
-  }
-
-  // The opening sequence, once the lights are up: roar (0-1.2 s), burst into
-  // the shield (from 1.2 s, formed by ~2.8 s), hold it, then back into the
-  // tiger (from 6.3 s, or as soon as the visitor scrolls on).
-  #morphStep(dt) {
-    if (!this.emblem) {
-      this.emblem = new Image()
-      this.emblem.src = `${import.meta.env.BASE_URL}brand/ku-emblem.png`
-    }
-    if (!this.tiger.ready || !(this.emblem.complete && this.emblem.naturalWidth)) return
-    // Sample while the lights come up; build (targets, shaders) just before.
-    if (!this.#prepMorph()) return
-    if (!this.morph && this.intro > 0.8) this.#buildMorph()
-    if (this.seqDone || this.intro < 0.95 || !this.morph || !this.morphReady) return
-    if (this.seq === 0) this.roar()
-    this.seq += dt
-    const t = this.seq
-    // The tiger stays and roars; embers lift off its coat and gather into the
-    // shield beside it; the shield then becomes the crisp emblem itself (on
-    // the page, see onEmblem) and the embers fade. No dissolve, no flash.
-    if (this.progress > 0.04 || (this.exit ?? 0) > 0) this.morphOut = true
-    const want = t > 0.9 && !this.morphOut ? 1 : 0
-    this.mLin = THREE.MathUtils.clamp((this.mLin ?? 0) + Math.sign(want - (this.mLin ?? 0)) * dt / 1.8, 0, 1)
-    const m = ease(this.mLin)
-    if (m > 0.995 && !this.formed) {
-      this.formed = true
-      this.formedT = t
-      this.onEmblem?.(this.#emblemRect())
-    }
-    const fade = this.formed ? THREE.MathUtils.clamp((t - this.formedT) / 0.6, 0, 1) : this.morphOut ? 1 : 0
-    this.morphU.uM.value = m
-    this.morphU.uTime.value = t
-    this.morphU.uFade.value = fade
-    this.morph.visible = true
-    this.morphing = m * (1 - fade)
-    if (fade >= 1 || (this.morphOut && this.mLin === 0)) ((this.seqDone = true), (this.morph.visible = false))
-  }
-
-  // Where the shield formed, in page pixels: centre and height.
-  #emblemRect() {
-    const r = this.canvas.getBoundingClientRect()
-    const toPx = (v) => {
-      const p = v.clone().project(this.camera)
-      return { x: r.left + (p.x * 0.5 + 0.5) * r.width, y: r.top + (-p.y * 0.5 + 0.5) * r.height }
-    }
-    const { c0, up, H } = this.emb
-    const a = toPx(c0.clone().addScaledVector(up, H / 2))
-    const b = toPx(c0.clone().addScaledVector(up, -H / 2))
-    const c = toPx(c0)
-    return { x: c.x, y: c.y, h: Math.abs(b.y - a.y) }
-  }
-
   // True when the last press was a drag rather than a click.
   get dragged() {
     return (this.lastDrag ?? 0) > 6
@@ -522,30 +308,11 @@ export class Hero3D {
     if (pounce > 0.05 && !this.leapRoared) ((this.leapRoared = true), this.onRoar?.())
     if (pounce < 0.01) this.leapRoared = false
     this.charge = charge
-    this.#morphStep(dt)
-    // The exit (driven by the first scroll): one roar, then the tiger breaks
-    // into embers that rise and drift past as the next chapter fades in.
+    // The exit (driven by the first scroll): one roar as the camera eases
+    // forward, while the page dissolves into the next chapter.
     const ex = this.exit ?? 0
-    if (ex > 0.01 && !this.exitOn) ((this.exitOn = true), (this.morphOut = true), this.roar(), this.onRoar?.())
-    if (ex < 0.005 && this.exitOn) {
-      this.exitOn = false
-      if (this.dust) this.dustU.uE.value = 0
-      this.tiger.group.visible = true
-    }
-    if (this.exitOn) {
-      if (!this.dust && this.prep && this.emblem?.naturalWidth) {
-        while (!this.#prepMorph());
-        this.#buildMorph()
-      }
-      const e = THREE.MathUtils.smoothstep(ex, 0.2, 1)
-      if (this.dust) {
-        this.dustU.uE.value = e
-        this.dustU.uTime.value = this.time
-        this.dust.visible = this.morphReady
-      }
-      if (e > 0.05 && this.morphReady) this.tiger.group.visible = false
-      if (this.morph) this.morph.visible = false
-    }
+    if (ex > 0.01 && !this.exitOn) ((this.exitOn = true), this.roar(), this.onRoar?.())
+    if (ex < 0.005) this.exitOn = false
     // The head follows the pointer a touch (undone after the frame).
     const head = this.tiger.gait?.bones?.c_head_00
     const neck = this.tiger.gait?.bones?.c_neck_01
@@ -601,10 +368,7 @@ export class Hero3D {
     this.emberU.uBlast.value = burst
     this.emberU.uScroll.value = p
     this.finish.uniforms.uTime.value = this.time
-    let flash = 0
-    if (this.flashT >= 0) ((this.flashT += dt), (flash = Math.exp(-this.flashT * 3)), this.flashT > 2 && (this.flashT = -1))
-    if (this.morphU) this.morphU.uFlash.value = flash
-    this.bloom.strength = 0.18 + burst * 0.25 + (this.morphing ?? 0) * 0.35 + flash * 0.9 + (this.dustU ? this.dustU.uE.value * 0.2 : 0)
+    this.bloom.strength = 0.18 + burst * 0.25
 
     this.composer.render()
     if (head) head.quaternion.multiply(qh.invert())

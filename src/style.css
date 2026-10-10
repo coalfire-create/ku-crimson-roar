@@ -2438,15 +2438,37 @@ button.pill:not([class*='pill--']) {
   }
 }
 
-/* The opening's emblem, handed from the embers to the nav. */
-.hero-crest {
-  position: fixed;
-  z-index: 60;
-  width: auto;
-  pointer-events: none;
-  transform-origin: 50% 50%;
-  filter: drop-shadow(0 0 30px rgba(255, 70, 50, 0.45));
+/* The opening's emblem, above the title: it comes up with a sweep of light. */
+.hero__crest {
+  --shine: -60%;
+  position: relative;
+  display: inline-block;
+  margin-bottom: 18px;
+  opacity: 0;
+  filter: drop-shadow(0 6px 24px rgba(255, 60, 40, 0.35));
 }
-.nav__emblem {
-  transform-origin: 50% 50%;
+.hero__crest img {
+  display: block;
+  height: clamp(58px, 6.2vw, 92px);
+  width: auto;
+}
+.hero__crest::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent calc(var(--shine) - 18%), rgba(255, 255, 255, 0.75) var(--shine), transparent calc(var(--shine) + 18%));
+  -webkit-mask: url('/brand/ku-emblem.png') center / contain no-repeat;
+  mask: url('/brand/ku-emblem.png') center / contain no-repeat;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+/* Desktop: the video card inside the lineup panel, under the list. */
+.lineup .stage-screen {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 100%;
+  margin-top: 14px;
+  pointer-events: auto;
 }
