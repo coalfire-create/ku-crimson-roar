@@ -3,6 +3,13 @@
 // rows: [label, value] pairs; facts: short bullets.
 
 export const INFO = {
+  현대자동차경영관: {
+    kind: '경영대학',
+    en: 'Hyundai Motor Hall',
+    story: '고려대 경영대학(KUBS)의 건물. 거친 화강암 벽 사이로 흰 석재 핀이 수직으로 솟고 그 사이를 유리 커튼월이 채웁니다. 옆 경영대 건물과는 뾰족 아치 아래를 지나는 다리로 이어집니다.',
+    rows: [['소속', '경영대학 (KUBS)'], ['양식', '현대 고딕 · 화강암과 유리']],
+    facts: ['흰 석재 핀 + 유리 커튼월', '뾰족 아치 연결 다리'],
+  },
   일반대학원: {
     kind: '사적 제286호 · 석조 건물',
     en: 'Old Central Library (1937)',
@@ -44,12 +51,6 @@ export const INFO = {
   경영본관: {
     kind: '경영대학',
     story: '현대자동차경영관, LG-POSCO경영관과 함께 경영대학을 이루는 석조 건물입니다.',
-    rows: [['소속', '경영대학']],
-  },
-  현대자동차경영관: {
-    kind: '경영대학',
-    en: 'Hyundai Motor Hall',
-    story: '경영대학의 강의실과 학생 공간이 모인 현대식 건물. 경영본관과 나란히 서 있습니다.',
     rows: [['소속', '경영대학']],
   },
   'CJ법학관': {

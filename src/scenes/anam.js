@@ -36,6 +36,7 @@ export const TARGETS = [
   { key: 'tiger', name: '호상', en: 'Tiger Statue', body: '지구 위에 선 백색 화강암 호랑이. 세계로 뻗어 나가는 고대의 기상을 상징한다.' },
   { hall: '중앙도서관', name: '중앙도서관', en: 'Central Library', body: '밤늦도록 불이 꺼지지 않는 지성의 심장. 앞 중앙광장 잔디 아래엔 지하 열람실이 있다.' },
   { hall: '경영본관', name: '경영본관', en: 'Business School', body: '현대자동차경영관·LG-POSCO경영관과 함께 경영대학을 이루는 석조 건물.' },
+  { hall: '현대자동차경영관', name: '현대자동차경영관', en: 'Hyundai Motor Hall', body: '화강암 사이로 흰 석재 핀과 유리 커튼월이 솟은 경영대학의 새 얼굴. 옆 건물과 뾰족 아치 다리로 이어진다.' },
   { hall: '백주년기념삼성관', name: '백주년기념삼성관', en: 'Centennial Samsung Hall', body: '개교 100주년을 기념해 세운 고딕 양식의 건물.' },
   { hall: '본관', name: '본관', en: 'Main Hall', body: '1934년 완공된 화강암 고딕 건물. 국가 사적으로 지정된 고려대의 얼굴.' },
   { hall: '인촌기념관', name: '인촌기념관', en: 'Inchon Memorial Hall', body: '인촌의 묘소가 있던 자리에 탄생 100주년(1991)을 맞아 세운 기념관. 입학식과 졸업식이 열린다.' },
@@ -54,7 +55,7 @@ const MOBILE = innerWidth < 760
 // whole campus at dusk. The tiger is the film's mascot, waiting in shot.
 const SHOWS_START = 0.1
 // Camera move per shot, in landmark order.
-const MOVES = ['crane', 'orbit', 'dolly', 'orbit', 'crane', 'dolly', 'orbit', 'crane']
+const MOVES = ['crane', 'orbit', 'dolly', 'orbit', 'crane', 'dolly', 'orbit', 'crane', 'dolly']
 const TOUR_END = 0.9
 const SUN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 11), THREE.MathUtils.degToRad(235))
 // 0 = golden hour, 1 = blue hour with the windows lit; the tour runs from one
@@ -650,6 +651,7 @@ export class AnamFlight {
     await frame()
     this.#planShots()
     this.#clearAxis()
+    this.#buildBespoke()
     await frame()
     this.#plantTrees()
     await frame()
@@ -828,7 +830,16 @@ export class AnamFlight {
       const s = { cx, cz, x0: f.x0, x1: f.x1, z0: f.z0, z1: f.z1, base: f.base ?? this.groundAt(cx, cz), hl: t.key === 'tiger' ? 6 : f.h * 0.45 }
       const spot = this.route.getPointAt(t.routeU)
       // The gate is shot from outside, looking in: the campus behind it.
-      const pref = t.key === 'gate' && this.gateIn ? Math.atan2(-this.gateIn.x, -this.gateIn.z) : Math.atan2(spot.x - cx, spot.z - cz)
+      let pref = t.key === 'gate' && this.gateIn ? Math.atan2(-this.gateIn.x, -this.gateIn.z) : Math.atan2(spot.x - cx, spot.z - cz)
+      // 현대자동차경영관 stands right behind 경영본관 from the road: look at it
+      // from its open side, away from that neighbour.
+      if (t.hall === '현대자동차경영관') {
+        const nb = DATA.buildings.find((x) => x.n === '경영본관')
+        if (nb) {
+          const o2 = obb(nb.p)
+          pref = Math.atan2(cx - o2.cx, cz - o2.cz)
+        }
+      }
       // Framed close enough that the hall fills the shot.
       const R0 = t.key === 'tiger' ? 23 : t.key === 'gate' ? 50 : t.key ? 30 : THREE.MathUtils.clamp(span * 0.72 + 24, 40, 135)
       const h0 = t.key === 'gate' ? 5 : t.key ? 4 : f.h * 0.3 + R0 * 0.16
@@ -2016,6 +2027,130 @@ export class AnamFlight {
       ])
       this.bronze.group.visible = true
       this.#placeBronze()
+    }
+  }
+
+  // Buildings modelled after photographs of them (Street View), laid over
+  // their footprints on the face the film looks at:
+  //  - 인촌기념관: a gothic entrance tower with a great pointed arch.
+  //  - 현대자동차경영관: full-height white stone fins over a glass curtain
+  //    wall, a deep flat cornice, and the pointed-arch bridge to its neighbour.
+  #buildBespoke() {
+    const faceOf = (name) => {
+      const t = this.shows?.find((x) => x.hall === name)
+      const b = DATA.buildings.filter((x) => x.n === name).sort((p, q) => q.p.length - p.p.length)[0]
+      if (!t || !b) return null
+      const o = obb(b.p)
+      const a = (t.shot.a0 + t.shot.a1) / 2
+      const dir = new THREE.Vector3(Math.sin(a), 0, Math.cos(a)) // from the hall toward the camera
+      // Distance from the centre to the footprint's edge along dir.
+      const u = dir.x * Math.cos(o.a) + dir.z * Math.sin(o.a)
+      const v = -dir.x * Math.sin(o.a) + dir.z * Math.cos(o.a)
+      const edge = Math.min(o.L / 2 / Math.max(1e-3, Math.abs(u)), o.W / 2 / Math.max(1e-3, Math.abs(v)))
+      const c = new THREE.Vector3(o.cx, 0, o.cz)
+      const base = this.groundAt(o.cx, o.cz)
+      // Along the face: the obb axis most square to dir.
+      const along = Math.abs(u) < Math.abs(v) ? new THREE.Vector3(Math.cos(o.a), 0, Math.sin(o.a)) : new THREE.Vector3(-Math.sin(o.a), 0, Math.cos(o.a))
+      const span = Math.abs(u) < Math.abs(v) ? o.L : o.W
+      return { b, o, dir, edge, c, base, along, span }
+    }
+    const granite = new THREE.MeshStandardMaterial({ color: '#b9b6b0', roughness: 0.85, emissive: '#ffcf9a', emissiveIntensity: 0.12 })
+    const white = new THREE.MeshStandardMaterial({ color: '#e9e6e0', roughness: 0.6, emissive: '#ffe2c0', emissiveIntensity: 0.1 })
+    const glass = new THREE.MeshStandardMaterial({ color: '#2a3a4c', roughness: 0.12, metalness: 0.7, emissive: '#ffcf8a', emissiveIntensity: 0.22 })
+    const dark = new THREE.MeshBasicMaterial({ color: '#120d0c' })
+    const lit = new THREE.MeshBasicMaterial({ color: '#ffcf8a' })
+    const place = (g, f) => {
+      g.position.copy(f.c).addScaledVector(f.dir, f.edge)
+      g.position.y = f.base
+      g.rotation.y = Math.atan2(f.dir.x, f.dir.z) // local +z faces out
+      this.scene.add(g)
+    }
+    const lancet = (w, h) => {
+      const s = new THREE.Shape()
+      const r = w / 2
+      s.moveTo(-r, 0)
+      s.lineTo(-r, h - w)
+      s.quadraticCurveTo(-r, h - w * 0.2, 0, h)
+      s.quadraticCurveTo(r, h - w * 0.2, r, h - w)
+      s.lineTo(r, 0)
+      return new THREE.ShapeGeometry(s, 8)
+    }
+
+    // 인촌기념관: the entrance tower.
+    const ic = faceOf('인촌기념관')
+    if (ic) {
+      const g = new THREE.Group()
+      const H = ic.b.h * 1.75
+      const box = (w, h, d, x, y, z, m = granite) => g.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d).translate(x, y, z), m))
+      box(11, H, 6, 0, H / 2, 1)
+      box(11.8, 0.6, 6.8, 0, H + 0.3, 1)
+      for (let k = 0; k < 5; k++) for (const zz of [-2.2, 4.2]) box(1.2, 1.1, 0.6, -4.4 + k * 2.2, H + 1.15, zz)
+      for (const x of [-5.8, 5.8]) {
+        box(1.4, H + 3, 1.4, x, (H + 3) / 2, 4.2)
+        g.add(new THREE.Mesh(new THREE.ConeGeometry(0.9, 2.6, 4).rotateY(Math.PI / 4).translate(x, H + 4.3, 4.2), granite))
+      }
+      // The great pointed arch: a moulded surround, the dark doorway, lit glass above the doors.
+      g.add(new THREE.Mesh(lancet(6.4, 10.5).translate(0, 0, 4.03), white))
+      g.add(new THREE.Mesh(lancet(5.2, 9.6).translate(0, 0, 4.06), dark))
+      g.add(new THREE.Mesh(lancet(3.8, 3.6).translate(0, 5.4, 4.08), lit))
+      for (const x of [-2.6, 2.6]) g.add(new THREE.Mesh(lancet(1.4, 4).translate(x, 12.5, 4.04), lit))
+      g.add(new THREE.Mesh(lancet(2.0, 4.6).translate(0, 12.2, 4.04), lit))
+      place(g, ic)
+    }
+
+    // 현대자동차경영관: fins, curtain wall, cornice; and the arch bridge.
+    const hy = faceOf('현대자동차경영관')
+    if (hy) {
+      const g = new THREE.Group()
+      const H = hy.b.h
+      const W = Math.min(hy.span * 0.92, 60)
+      // Glass curtain wall, a little proud of the stone.
+      g.add(new THREE.Mesh(new THREE.PlaneGeometry(W * 0.86, H * 0.86).translate(0, H * 0.5, 0.25), glass))
+      // Full-height stone fins, every 2.6 m.
+      const n = Math.floor((W * 0.86) / 2.6)
+      for (let k = 0; k <= n; k++) g.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, H * 0.92, 1.4).translate(-W * 0.43 + k * 2.6, H * 0.46, 0.8), white))
+      // Floor lines across the glass.
+      for (let f = 1; f < Math.floor(H / 4); f++) g.add(new THREE.Mesh(new THREE.BoxGeometry(W * 0.86, 0.22, 0.35).translate(0, f * 4, 0.45), white))
+      // The deep flat cornice overhanging the top.
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(W + 2, 1.2, 4.5).translate(0, H + 0.4, 0.6), white))
+      // Rough granite end piers.
+      for (const x of [-W / 2, W / 2]) g.add(new THREE.Mesh(new THREE.BoxGeometry(3.2, H + 0.4, 2.2).translate(x, (H + 0.4) / 2, 0.4), granite))
+      place(g, hy)
+      // The pointed-arch bridge to the nearest neighbour across the gap.
+      const neighbour = DATA.buildings
+        .filter((x) => x !== hy.b && x.n && /경영/.test(x.n))
+        .map((x) => ({ x, o: obb(x.p) }))
+        .sort((p, q) => Math.hypot(p.o.cx - hy.o.cx, p.o.cz - hy.o.cz) - Math.hypot(q.o.cx - hy.o.cx, q.o.cz - hy.o.cz))[0]
+      if (neighbour) {
+        const a = new THREE.Vector3(hy.o.cx, 0, hy.o.cz)
+        const b = new THREE.Vector3(neighbour.o.cx, 0, neighbour.o.cz)
+        const gap = Math.max(8, a.distanceTo(b) - (hy.o.W + neighbour.o.W) / 2)
+        const mid = a.clone().lerp(b, 0.5)
+        const bridge = new THREE.Group()
+        const sh = new THREE.Shape()
+        const r = gap / 2
+        sh.moveTo(-r, 0)
+        sh.lineTo(-r, 5.5)
+        sh.quadraticCurveTo(-r, 9.5, 0, 10.5)
+        sh.quadraticCurveTo(r, 9.5, r, 5.5)
+        sh.lineTo(r, 0)
+        sh.lineTo(r + 1.5, 0)
+        sh.lineTo(r + 1.5, 14.5)
+        sh.lineTo(-r - 1.5, 14.5)
+        sh.lineTo(-r - 1.5, 0)
+        sh.closePath()
+        const bg = new THREE.ExtrudeGeometry(sh, { depth: 5, bevelEnabled: false, curveSegments: 16 })
+        bg.translate(0, 0, -2.5)
+        bridge.add(new THREE.Mesh(bg, granite))
+        for (let k = 0; k < 3; k++) for (const zz of [2.53, -2.53]) {
+          const wg = lancet(1.3, 2.4)
+          if (zz < 0) wg.rotateY(Math.PI)
+          bridge.add(new THREE.Mesh(wg.translate(-r * 0.5 + k * r * 0.5, 11.2, zz), lit))
+        }
+        bridge.position.set(mid.x, this.groundAt(mid.x, mid.z), mid.z)
+        bridge.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x)
+        this.scene.add(bridge)
+      }
     }
   }
 
