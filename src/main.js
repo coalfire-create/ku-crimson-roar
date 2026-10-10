@@ -124,6 +124,27 @@ async function boot() {
       roarSound()
     } catch {}
   }
+  // The shield, once its embers have gathered, becomes the crisp emblem: it
+  // brightens in place, holds a moment, then glides up into the nav's logo.
+  let crestTl = null
+  hero.onEmblem = (r) => {
+    const img = document.createElement('img')
+    img.src = `${import.meta.env.BASE_URL}brand/ku-emblem.png`
+    img.className = 'hero-crest'
+    img.alt = ''
+    const w = (r.h * 593) / 797
+    Object.assign(img.style, { left: `${r.x - w / 2}px`, top: `${r.y - r.h / 2}px`, height: `${r.h}px` })
+    document.body.appendChild(img)
+    const nav = document.querySelector('.nav__emblem').getBoundingClientRect()
+    const dx = nav.left + nav.width / 2 - r.x
+    const dy = nav.top + nav.height / 2 - r.y
+    crestTl = gsap
+      .timeline({ onComplete: () => img.remove() })
+      .fromTo(img, { opacity: 0, filter: 'brightness(1.8) blur(3px)' }, { opacity: 1, filter: 'brightness(1) blur(0px)', duration: 0.7, ease: 'power2.out' })
+      .to(img, { x: dx, y: dy, scale: nav.height / r.h, duration: 1.2, ease: 'expo.inOut' }, '+=1.6')
+      .to(img, { opacity: 0, duration: 0.25 }, '-=0.15')
+      .fromTo('.nav__emblem', { scale: 1.35 }, { scale: 1, duration: 0.6, ease: 'back.out(3)' }, '-=0.2')
+  }
   // The first scroll wakes it too: the same growl and jolt.
   hero.onRoar = () => {
     blastT = 0
@@ -158,6 +179,8 @@ async function boot() {
   const startLeap = () => {
     if (leapRun || !chapterTick || !introDone || scrollY > 4) return false
     leapRun = { t: 0, went: false }
+    // Leaving mid-ceremony: the emblem simply fades.
+    if (crestTl?.isActive()) (crestTl.kill(), gsap.to('.hero-crest', { opacity: 0, duration: 0.3, onComplete: () => document.querySelectorAll('.hero-crest').forEach((e) => e.remove()) }))
     return true
   }
   addEventListener('wheel', (e) => e.deltaY > 4 && startLeap(), { passive: true })

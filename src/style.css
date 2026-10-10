@@ -2437,3 +2437,16 @@ button.pill:not([class*='pill--']) {
     font-size: 24px;
   }
 }
+
+/* The opening's emblem, handed from the embers to the nav. */
+.hero-crest {
+  position: fixed;
+  z-index: 60;
+  width: auto;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 0 30px rgba(255, 70, 50, 0.45));
+}
+.nav__emblem {
+  transform-origin: 50% 50%;
+}

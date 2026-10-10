@@ -24,7 +24,7 @@ const MORPH_VERT = /* glsl */ `
   attribute vec3 aTo;
   attribute vec3 aCol;
   attribute float aSeed;
-  uniform float uM, uTime, uSize, uFlash;
+  uniform float uM, uTime, uSize, uFlash, uFade;
   varying vec3 vCol;
   varying float vA;
   void main(){
@@ -40,7 +40,9 @@ const MORPH_VERT = /* glsl */ `
     // A sweep of light across the shield as it locks into place.
     float sweep = exp(-pow((aTo.x + aTo.y * 0.6) * 1.2 - (1.0 - uFlash) * 6.0 + 3.0, 2.0) * 2.0);
     vCol += vec3(1.0, 0.85, 0.55) * (uFlash * 0.5 + sweep * uFlash) * e;
-    vA = smoothstep(0.0, 0.08, uM);
+    // Faint sparks lifting off the coat at first, the shield brighter as it
+    // forms; then gone as the crisp emblem takes their place.
+    vA = smoothstep(0.0, 0.08, uM) * mix(0.35, 1.0, e) * (1.0 - uFade);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = uSize * mix(2.2, 1.0, e) / -mv.z;
@@ -325,9 +327,10 @@ export class Hero3D {
     const fwd = this.camera.getWorldDirection(new THREE.Vector3())
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion)
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion)
-    const H = vh * (this.portrait ? 0.4 : 0.62)
+    const H = vh * (this.portrait ? 0.26 : 0.34)
     const W = (H * cw) / ch
-    const c0 = this.camera.position.clone().addScaledVector(fwd, D).addScaledVector(right, this.portrait ? 0 : vw * 0.2).addScaledVector(up, this.portrait ? vh * 0.12 : 0.02 * vh)
+    const c0 = this.camera.position.clone().addScaledVector(fwd, D).addScaledVector(right, this.portrait ? 0 : vw * 0.02).addScaledVector(up, this.portrait ? vh * 0.24 : vh * 0.2)
+    this.emb = { c0, up, H }
     for (let i = 0; i < N; i++) {
       const [x, y] = on[Math.floor(Math.random() * on.length)]
       const ox = (x / cw - 0.5) * W + (Math.random() - 0.5) * (W / cw)
@@ -342,7 +345,7 @@ export class Hero3D {
     geo.setAttribute('aTo', new THREE.BufferAttribute(to, 3))
     geo.setAttribute('aCol', new THREE.BufferAttribute(col, 3))
     geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1))
-    this.morphU = { uM: { value: 0 }, uTime: { value: 0 }, uFlash: { value: 0 }, uSize: { value: 13 * this.renderer.getPixelRatio() } }
+    this.morphU = { uM: { value: 0 }, uTime: { value: 0 }, uFlash: { value: 0 }, uFade: { value: 0 }, uSize: { value: 13 * this.renderer.getPixelRatio() } }
     this.morph = new THREE.Points(geo, new THREE.ShaderMaterial({ uniforms: this.morphU, vertexShader: MORPH_VERT, fragmentShader: MORPH_FRAG, transparent: true, depthWrite: false }))
     this.morph.frustumCulled = false
     this.scene.add(this.morph)
@@ -387,20 +390,39 @@ export class Hero3D {
     if (this.seq === 0) this.roar()
     this.seq += dt
     const t = this.seq
-    if (this.progress > 0.04) this.morphOut = true
-    const want = t > 1.2 && t < 6.3 && !this.morphOut ? 1 : 0
-    this.mLin = THREE.MathUtils.clamp((this.mLin ?? 0) + Math.sign(want - (this.mLin ?? 0)) * dt / 1.6, 0, 1)
-    if (t < 1.2 && this.morphOut) ((this.seqDone = true), (this.tiger.group.visible = true))
+    // The tiger stays and roars; embers lift off its coat and gather into the
+    // shield beside it; the shield then becomes the crisp emblem itself (on
+    // the page, see onEmblem) and the embers fade. No dissolve, no flash.
+    if (this.progress > 0.04 || (this.exit ?? 0) > 0) this.morphOut = true
+    const want = t > 0.9 && !this.morphOut ? 1 : 0
+    this.mLin = THREE.MathUtils.clamp((this.mLin ?? 0) + Math.sign(want - (this.mLin ?? 0)) * dt / 1.8, 0, 1)
     const m = ease(this.mLin)
-    // A flash as the shield locks into place.
-    if (m > 0.98 && !this.formed) ((this.formed = true), (this.flashT = 0))
+    if (m > 0.995 && !this.formed) {
+      this.formed = true
+      this.formedT = t
+      this.onEmblem?.(this.#emblemRect())
+    }
+    const fade = this.formed ? THREE.MathUtils.clamp((t - this.formedT) / 0.6, 0, 1) : this.morphOut ? 1 : 0
     this.morphU.uM.value = m
     this.morphU.uTime.value = t
+    this.morphU.uFade.value = fade
     this.morph.visible = true
-    // The tiger is gone while its embers make the shield.
-    this.tiger.group.visible = m < 0.03
-    this.morphing = m
-    if (t > 1.3 && this.mLin === 0) ((this.seqDone = true), (this.morph.visible = false), (this.tiger.group.visible = true))
+    this.morphing = m * (1 - fade)
+    if (fade >= 1 || (this.morphOut && this.mLin === 0)) ((this.seqDone = true), (this.morph.visible = false))
+  }
+
+  // Where the shield formed, in page pixels: centre and height.
+  #emblemRect() {
+    const r = this.canvas.getBoundingClientRect()
+    const toPx = (v) => {
+      const p = v.clone().project(this.camera)
+      return { x: r.left + (p.x * 0.5 + 0.5) * r.width, y: r.top + (-p.y * 0.5 + 0.5) * r.height }
+    }
+    const { c0, up, H } = this.emb
+    const a = toPx(c0.clone().addScaledVector(up, H / 2))
+    const b = toPx(c0.clone().addScaledVector(up, -H / 2))
+    const c = toPx(c0)
+    return { x: c.x, y: c.y, h: Math.abs(b.y - a.y) }
   }
 
   // True when the last press was a drag rather than a click.
