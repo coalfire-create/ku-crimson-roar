@@ -254,22 +254,28 @@ export class Gate {
     st.position.z = -16
     // Night over 안암: deep blue overhead, stars, and a crimson glow low on
     // the horizon where the city and the crowd's lights rise.
-    this.skyU = { uK: { value: 0 } }
+    this.skyU = { uK: { value: 0 }, uDawn: { value: 0 } }
     const sky = new THREE.Mesh(
       new THREE.PlaneGeometry(400, 160),
       new THREE.ShaderMaterial({
         uniforms: this.skyU,
         vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: `uniform float uK; varying vec2 vUv;
+        fragmentShader: `uniform float uK, uDawn; varying vec2 vUv;
           void main(){
             float h = vUv.y;
-            vec3 top = vec3(0.012, 0.016, 0.05), mid = vec3(0.05, 0.03, 0.09), hor = vec3(0.36, 0.05, 0.1);
+            // Deep night; at the climax a crimson-gold dawn breaks behind 본관.
+            vec3 top = vec3(0.004, 0.006, 0.02), mid = vec3(0.016, 0.012, 0.035), hor = vec3(0.08, 0.02, 0.04);
             vec3 c = mix(hor, mid, smoothstep(0.1, 0.32, h));
             c = mix(c, top, smoothstep(0.32, 0.8, h));
-            c += vec3(0.9, 0.2, 0.25) * exp(-pow((vUv.x - 0.5) * 3.0, 2.0) - pow((h - 0.12) * 8.0, 2.0)) * 0.35;
+            // Dawn only along the horizon; the sky above stays night.
+            vec3 dawnHor = mix(vec3(0.85, 0.42, 0.16), vec3(0.45, 0.04, 0.1), smoothstep(0.06, 0.2, h));
+            vec3 dawn = mix(dawnHor, mid, smoothstep(0.16, 0.42, h));
+            dawn = mix(dawn, top, smoothstep(0.42, 0.8, h));
+            dawn += vec3(1.0, 0.6, 0.3) * exp(-pow((vUv.x - 0.5) * 4.0, 2.0) - pow((h - 0.08) * 9.0, 2.0)) * 0.5;
+            c = mix(c, dawn, uDawn);
             vec2 q = floor(vUv * vec2(900.0, 360.0));
             float r = fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453);
-            c += step(0.9965, r) * smoothstep(0.3, 0.7, h) * 0.9;
+            c += step(0.9965, r) * smoothstep(0.3, 0.7, h) * 0.9 * (1.0 - uDawn * 0.6);
             gl_FragColor = vec4(c * uK, 1.0);
           }`,
         depthWrite: false,
@@ -315,6 +321,7 @@ export class Gate {
     const trim = new THREE.MeshStandardMaterial({ color: '#8c7f74', roughness: 0.9 })
     const slate = new THREE.MeshStandardMaterial({ color: '#2a2430', roughness: 0.6 })
     const glow = new THREE.MeshBasicMaterial({ color: '#ffc879' })
+    this.windowGlow = glow
     const hall = new THREE.Group()
     // World-scale UVs (one tile = 5 m) so the coursing is even everywhere.
     const wuv = (g) => {
@@ -433,7 +440,6 @@ export class Gate {
       rock.add(b)
     }
     rock.position.set(-7, 0, -2)
-    st.add(rock)
     // Beams of light behind, sweeping.
     this.beams = []
     for (let i = 0; i < 7; i++) {
@@ -516,10 +522,66 @@ export class Gate {
     this.stageKey.target = rock
     this.stageRim.target = rock
     st.add(this.stageKey, this.stageRim)
+    // Fireworks: eight bursts that go off in turn, each a sphere of sparks
+    // thrown out, falling and fading; the whole cycle repeats every 4 s.
+    const FB = 8
+    const FP = mobile ? 160 : 320
+    const fpos = new Float32Array(FB * FP * 3)
+    const fvel = new Float32Array(FB * FP * 3)
+    const fmeta = new Float32Array(FB * FP * 2)
+    const fcol = new Float32Array(FB * FP * 3)
+    const palette = [[1, 0.2, 0.3], [1, 0.8, 0.4], [1, 0.95, 0.9]]
+    for (let b = 0; b < FB; b++) {
+      const cx = (Math.random() - 0.5) * 110
+      const cy = 30 + Math.random() * 22
+      const cz = -150 - Math.random() * 40
+      const col = palette[b % 3]
+      for (let k = 0; k < FP; k++) {
+        const i = b * FP + k
+        const v = new THREE.Vector3().randomDirection().multiplyScalar(9 + Math.random() * 4)
+        fpos.set([cx, cy, cz], i * 3)
+        fvel.set([v.x, v.y, v.z], i * 3)
+        fmeta.set([b / FB, Math.random()], i * 2)
+        fcol.set(col, i * 3)
+      }
+    }
+    const fg = new THREE.BufferGeometry()
+    fg.setAttribute('position', new THREE.BufferAttribute(fpos, 3))
+    fg.setAttribute('aVel', new THREE.BufferAttribute(fvel, 3))
+    fg.setAttribute('aMeta', new THREE.BufferAttribute(fmeta, 2))
+    fg.setAttribute('aCol', new THREE.BufferAttribute(fcol, 3))
+    this.fwU = { uTime: { value: 0 }, uOn: { value: 0 }, uPx: { value: this.renderer.getPixelRatio() } }
+    this.fireworks = new THREE.Points(
+      fg,
+      new THREE.ShaderMaterial({
+        uniforms: this.fwU,
+        vertexShader: `attribute vec3 aVel; attribute vec2 aMeta; attribute vec3 aCol; uniform float uTime, uPx; varying float vA; varying vec3 vCol;
+          void main(){
+            float age = fract(uTime / 4.0 - aMeta.x) * 4.0;
+            float e = 1.0 - exp(-age * 2.2);
+            vec3 p = position + aVel * e * 1.6 - vec3(0.0, 2.2 * age * age, 0.0);
+            vA = smoothstep(0.0, 0.08, age) * (1.0 - smoothstep(1.2, 2.4, age)) * (0.6 + 0.4 * sin(age * 40.0 + aMeta.y * 20.0));
+            vCol = aCol;
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
+            gl_Position = projectionMatrix * mv;
+            gl_PointSize = uPx * 260.0 / -mv.z;
+          }`,
+        fragmentShader: `uniform float uOn; varying float vA; varying vec3 vCol;
+          void main(){
+            float d = length(gl_PointCoord - 0.5);
+            float a = smoothstep(0.5, 0.0, d);
+            gl_FragColor = vec4(vCol * 1.8, a * a * vA * uOn);
+          }`,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    )
+    this.fireworks.frustumCulled = false
+    this.fireworks.visible = false
+    st.add(this.fireworks)
     this.scene.add(st)
     this.stage.visible = false
-    // The tiger itself, on the rock, facing out over the viewer.
-    this.tiger = new RunTiger(this.scene, undefined, { scale: 0.05, fur: mobile ? 4 : 8, furLen: 1.1, rim: 0.5 })
   }
 
   setName(name) {
@@ -598,37 +660,39 @@ export class Gate {
     // The reveal: the stage lights up behind as the letter clears the view.
     const reveal = S(p, 0.7, 0.86)
     this.stage.visible = reveal > 0.001
-    this.skyU.uK.value = reveal
-    this.stageKey.intensity = reveal * 2.6
-    this.stageRim.intensity = reveal * 3.5
-    // The story (driven from the page after the letter): the crowd's lights
-    // come up, a wave runs through them, they turn crimson and rise.
+    // The story (driven from the page after the letter) changes the whole
+    // scene: it opens in deep night, 본관 dark; its windows light up as the
+    // story is told; at the climax dawn breaks crimson and gold behind it,
+    // searchlights swing up from the crowd and fireworks burst.
     const sto = this.story ?? 0
+    const dawn = S(sto, 0.72, 0.95)
+    this.skyU.uK.value = reveal
+    this.skyU.uDawn.value = dawn
+    this.windowGlow.color.setRGB(1, 0.78, 0.47).multiplyScalar(0.12 + 0.88 * S(sto, 0.05, 0.6))
+    this.stageKey.intensity = reveal * (0.5 + 1.6 * dawn)
+    this.stageRim.intensity = reveal * (0.6 + 2.2 * dawn)
     this.crowdU.uTime.value = t
     this.crowdU.uOn.value = reveal
     this.crowdU.uWave.value = S(sto, 0.25, 0.5)
     this.crowdU.uCrimson.value = S(sto, 0.55, 0.85)
     this.crowdU.uRaise.value = S(sto, 0.8, 0.95)
     this.beams.forEach((b) => {
-      b.material.opacity = reveal * 0.05 * (0.6 + 0.4 * Math.sin(t * 1.3 + b.userData.ph))
+      b.material.opacity = reveal * 0.05 * S(sto, 0.75, 0.9) * (0.6 + 0.4 * Math.sin(t * 1.3 + b.userData.ph))
       b.rotation.z = Math.sin(t * 0.35 + b.userData.ph) * 0.35
       b.rotation.x = -0.15
     })
-    this.sparks.material.opacity = reveal * 0.85
+    this.sparks.material.opacity = reveal * 0.85 * S(sto, 0.6, 0.85)
+    // Fireworks over 본관 at the climax: bursts of crimson, gold and white.
+    const fw = S(sto, 0.82, 0.9)
+    this.fireworks.visible = fw > 0.001
+    if (this.fireworks.visible) {
+      this.fwU.uTime.value = t
+      this.fwU.uOn.value = fw
+    }
     if (reveal > 0.001) {
       const sp = this.sparks.geometry.attributes.position
       for (let i = 0; i < sp.count; i++) sp.setY(i, (sp.getY(i) + dt * (1.5 + (i % 5) * 0.4)) % 40)
       sp.needsUpdate = true
-    }
-    // The tiger roars on arrival, and again every few seconds.
-    if (this.tiger.ready) {
-      const cycle = (t % 5) / 5
-      // Quiet while the story is told; roaring with the crowd at its height.
-      const roar = sto > 0.82 ? S(cycle, 0, 0.06) * (1 - S(cycle, 0.4, 0.55)) : 0
-      if (roar > 0.5 && !this.roared) ((this.roared = true), this.onRoar?.())
-      if (roar < 0.1) this.roared = false
-      this.tiger.update(dt, new THREE.Vector3(-7, 3.1, -18), new THREE.Vector3(0.55, 0, 1).normalize(), 0, roar)
-      this.tiger.group.visible = reveal > 0.05
     }
     // Confetti falls once the letter is read.
     const burst = S(sto, 0.86, 0.95)

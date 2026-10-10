@@ -198,6 +198,13 @@ export class Symbols3D {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.3, 0.5, 0.85)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
+    // Compile every shader up front (and the tiger's once it has loaded), so
+    // nothing stalls the first time it comes into view.
+    this.renderer.compileAsync(this.scene, this.camera).catch(() => {})
+    this.tiger.onReady = () => {
+      this.tiger.group.visible = true
+      this.renderer.compileAsync(this.scene, this.camera).catch(() => {})
+    }
     this.progress = 0
     this.time = 0
     this.mouse = new THREE.Vector2()
@@ -255,16 +262,25 @@ export class Symbols3D {
     // Crimson: the gust picks up as the camera approaches, then it flies.
     this.clothU.uTime.value = t
     this.clothU.uGust.value = S(p, 0.2, 0.36) * 1.2
-    this.cloth.visible = a < 1
+    this.cloth.visible = this.camera.position.z > this.cloth.position.z - 1
     // Tiger: roars every few seconds while it is in view.
     if (this.tiger.ready) {
-      const near = a > 0.6 && a < 1.6
-      this.tiger.group.visible = near
-      if (near) {
-        const cyc = (t % 4.5) / 4.5
-        const roar = S(cyc, 0.05, 0.15) * (1 - S(cyc, 0.5, 0.65))
-        this.tiger.update(dt, this.tigerAt.clone().add(new THREE.Vector3(0, 3.4, 0)), new THREE.Vector3(0.45, 0, 1).normalize(), 0, roar)
-      }
+      // Alive on its crag: it paces across the top, turns, stops facing out
+      // and roars, then paces back. Animated all the time (not only when in
+      // view), so it never snaps into a pose as it appears.
+      const C = 9 // seconds per cycle
+      const c = (t % C) / C
+      // 0-0.32 walk right, 0.32-0.5 stand and roar, 0.5-0.82 walk left, 0.82-1 roar.
+      const walkR = S(c, 0, 0.32)
+      const walkL = S(c, 0.5, 0.82)
+      const x = -2.4 + 4.8 * walkR - 4.8 * walkL
+      const moving = (c < 0.32 || (c > 0.5 && c < 0.82)) ? 1 : 0
+      const dirX = c < 0.32 ? 1 : c > 0.5 && c < 0.82 ? -1 : 0
+      const out = new THREE.Vector3(dirX * 0.9, 0, dirX ? 0.45 : 1).normalize()
+      const roarK = Math.max(S(c, 0.36, 0.4) * (1 - S(c, 0.46, 0.5)), S(c, 0.86, 0.9) * (1 - S(c, 0.96, 1)))
+      const pos = this.tigerAt.clone().add(new THREE.Vector3(x, 3.4, 0))
+      this.tiger.update(dt, pos, out, moving ? 1.3 : 0, roarK * 0.9)
+      this.tiger.group.visible = a > 0.4 && a < 1.7
     }
     const ep = this.embers.geometry.attributes.position
     for (let k = 0; k < ep.count; k++) ep.setY(k, (ep.getY(k) + dt * (0.8 + (k % 7) * 0.25)) % 20)
