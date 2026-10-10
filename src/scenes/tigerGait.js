@@ -154,13 +154,15 @@ export class TigerGait {
     const wv = GAIT.walk
     const rn = GAIT.run
     let scapUp = 0
-    for (const leg of Object.values(LEGS)) {
+    const st = {} // each leg's load (0..1 through its stance), walking
+    for (const [name, leg] of Object.entries(LEGS)) {
       const a = legPose((t - leg.walk + 1) % 1, wv, leg.front)
       const b = legPose((t - leg.run + 1) % 1, rn, leg.front)
       const s = leg.front ? SIGN.fore : SIGN.hind
       const sweep = THREE.MathUtils.lerp(a.sweep, b.sweep, w) * s.sweep
       const fold = THREE.MathUtils.lerp(a.fold, b.fold, w) * s.fold
       const flick = THREE.MathUtils.lerp(a.flick, b.flick, w) * s.flick
+      st[name] = a.stance
       const [hip, knee, ankle, ball] = leg.bones
       this.#set(hip, sweep)
       this.#set(knee, fold)
@@ -171,43 +173,55 @@ export class TigerGait {
       if (sc) {
         // Shoulder blade: rides up over the foreleg as it takes the weight
         // (the rolling shoulders of a walking cat), and slides with the reach.
-        const st = THREE.MathUtils.lerp(a.stance, b.stance, w)
+        // (Pronounced, as in film of walking tigers: the blades rise above the
+        // line of the back in turn.)
+        const ld = THREE.MathUtils.lerp(a.stance, b.stance, w)
         sc.b.position.copy(sc.rest)
-        sc.b.position.addScaledVector(sc.up, st * sc.amp * 0.5 * (1 - w) * this.mix)
-        sc.b.position.addScaledVector(sc.fwd, (sweep * s.sweep) * sc.amp * 0.6 * this.mix)
-        scapUp += st
+        sc.b.position.addScaledVector(sc.up, ld * sc.amp * 1.5 * (1 - w) * this.mix)
+        sc.b.position.addScaledVector(sc.fwd, (sweep * s.sweep) * sc.amp * 0.9 * this.mix)
+        scapUp += ld
       }
     }
 
-    // Spine. Walking: a gentle side-to-side sway and a little roll with each
-    // hind step. Galloping: coils up as the hind legs reach forward under the
-    // chest, then stretches out at full extension.
-    // Kept small: a big cat's walk rolls, it doesn't wag.
-    const sway = Math.sin(t * TAU) * (1 - w) * 0.5
+    // Spine. Walking, the whole body moves with the legs: the back bends in a
+    // slow S from side to side (hips one way, chest the other), the pelvis
+    // rolls toward whichever hind leg carries the weight and the chest
+    // toward the loaded foreleg. Galloping: coils up as the hind legs reach
+    // forward under the chest, then stretches out at full extension.
+    const walk = 1 - w
+    const sway = Math.sin(t * TAU) * walk
     const coil = Math.sin((t + 0.05) * TAU) * w
+    const hipRoll = ((st.hl ?? 0) - (st.hr ?? 0)) * walk
+    const chestRoll = ((st.fl ?? 0) - (st.fr ?? 0)) * walk
     SPINE.forEach((key, i) => {
       const k = [0.06, 0.05, 0.04, -0.03, -0.04][i]
-      this.#set(key, coil * k * 2.6, sway * [0.04, 0.035, 0.025, 0.02, 0.015][i], sway * 0.02)
+      const bend = [0.07, 0.045, 0.0, -0.045, -0.07][i]
+      const roll = i < 2 ? hipRoll * 0.07 : i > 2 ? chestRoll * 0.06 : 0
+      // A little sag and lift of the back between the steps.
+      const dip = Math.sin(t * TAU * 2) * 0.018 * walk * (i === 2 ? 1 : 0.5)
+      this.#set(key, coil * k * 2.6 + dip, sway * bend, roll)
     })
-    // Head low and steady: it counters the body's movement so the eyes stay level.
-    // The head stays pointed down the road: the neck undoes the spine's sway.
-    NECK.forEach((key, i) => this.#set(key, [-0.12, -0.04, 0.06][i] * (1 - w) - coil * 0.05, -sway * [0.06, 0.05, 0.04][i]))
+    // Head low and steady: carried just below the shoulders, it counters the
+    // body's sway and bob so the eyes stay level and on the path ahead.
+    NECK.forEach((key, i) => this.#set(key, [-0.14, -0.05, 0.08][i] * walk - coil * 0.05 - Math.sin(t * TAU * 2) * 0.02 * walk * (i === 2 ? 1 : 0), -sway * [0.08, 0.06, 0.04][i]))
     // Tail: hanging in a soft curve with a lazy swing when walking, streaming
     // out behind and whipping for balance at the gallop.
     TAIL.forEach((key, i) => {
       const f = i / (TAIL.length - 1)
       const hang = THREE.MathUtils.lerp(0.06 + f * 0.05, -0.01, w)
-      const swing = Math.sin((t - f * 0.35) * TAU) * THREE.MathUtils.lerp(0.06, 0.03, w)
+      const swing = Math.sin((t - f * 0.45) * TAU) * THREE.MathUtils.lerp(0.13, 0.03, w)
       const tip = f > 0.6 ? THREE.MathUtils.lerp(-0.1, 0, w) * (f - 0.6) * 2.5 : 0
       this.#set(key, hang + tip + coil * 0.03, swing)
     })
     // Body: dips slightly at each footfall when walking (two per stride);
     // rises and pitches through the gallop's suspension.
     if (this.rootBone) {
-      const bob = -Math.abs(Math.sin(t * TAU)) * 0.012 * L * (1 - w) + Math.sin((t + 0.25) * TAU) * 0.03 * L * w
+      // Walking: the body drops onto each hind leg as it lands and rises as
+      // it passes over it, twice a stride, and rolls with the weight.
+      const bob = -Math.abs(Math.sin(t * TAU)) * 0.02 * L * walk + Math.sin((t + 0.25) * TAU) * 0.03 * L * w
       if (this.mix >= 1) this.rootBone.position.copy(this.rootRest)
       this.rootBone.position.y += bob * this.mix
-      this.#set('c_root_01', Math.sin((t + 0.1) * TAU) * 0.05 * w, 0, sway * 0.02)
+      this.#set('c_root_01', Math.sin((t + 0.1) * TAU) * 0.05 * w + Math.sin(t * TAU * 2) * 0.012 * walk, sway * 0.03, hipRoll * 0.035)
     }
   }
 }
