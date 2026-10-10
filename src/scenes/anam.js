@@ -33,7 +33,7 @@ import { AER, AER_GLSL, NIGHT, FOCUS, buildingMaterial, STYLE as BST, offsetPoly
 
 export const TARGETS = [
   { key: 'gate', name: '정문', en: 'Main Gate', body: '안암로에서 올려다보이는 석조 정문. 고려대의 모든 이야기가 시작되는 곳.' },
-  { key: 'tiger', name: '호상', en: 'Tiger Statue', body: '고려대의 상징, 호랑이. 캠퍼스 한가운데서 안암을 지킨다.' },
+  { key: 'tiger', name: '호상', en: 'Tiger Statue', body: '지구 위에 선 백색 화강암 호랑이. 세계로 뻗어 나가는 고대의 기상을 상징한다.' },
   { hall: '중앙도서관', name: '중앙도서관', en: 'Central Library', body: '밤늦도록 불이 꺼지지 않는 지성의 심장. 앞 중앙광장 잔디 아래엔 지하 열람실이 있다.' },
   { hall: '경영본관', name: '경영본관', en: 'Business School', body: '현대자동차경영관·LG-POSCO경영관과 함께 경영대학을 이루는 석조 건물.' },
   { hall: '백주년기념삼성관', name: '백주년기념삼성관', en: 'Centennial Samsung Hall', body: '개교 100주년을 기념해 세운 고딕 양식의 건물.' },
@@ -647,6 +647,7 @@ export class AnamFlight {
     this.#buildClearance()
     await frame()
     this.#planShots()
+    this.#clearAxis()
     await frame()
     this.#plantTrees()
     await frame()
@@ -842,7 +843,7 @@ export class AnamFlight {
       const dir = n % 2 ? 1 : -1
       t.shot = { ...s, R: pick.R, hc: pick.hc, a0: pick.a - (dir * SWEEP) / 2, a1: pick.a + (dir * SWEEP) / 2 }
       // The bronze tiger turns to face the camera that shows it (three-quarter on).
-      if (t.key === 'tiger' && this.statue) ((this.statue.rotation.y = pick.a - 0.35), this.#placeBronze())
+      if (t.key === 'tiger' && this.statue) ((this.statue.rotation.y = pick.a - 1.25), this.#placeBronze())
       // Sight lines to keep free of tree crowns: the near 70% of each.
       for (const o of [0, 0.5, 1]) {
         const cam = view(s, t.shot.a0 + (t.shot.a1 - t.shot.a0) * o, pick.R, pick.hc)
@@ -850,6 +851,22 @@ export class AnamFlight {
         for (let d = 0; d < L * 0.7; d += 3) this.sight.push([cam.x + ((cx - cam.x) * d) / L, cam.z + ((cz - cam.z) * d) / L])
       }
     })
+  }
+
+  // The axis 정문 – 중앙광장 – 본관 stays open, as it is: no trees on the
+  // sightline from the road outside the gate to 본관.
+  #clearAxis() {
+    const mh = DATA.buildings.filter((x) => x.n === '본관').map((x) => obb(x.p))[0]
+    if (!this.gateAt || !mh) return
+    const from = this.gateAt.clone().addScaledVector(this.gateIn, -70)
+    const L = Math.hypot(mh.cx - from.x, mh.cz - from.z)
+    for (let d = 0; d < L - 10; d += 3) {
+      const f = d / L
+      const x = from.x + (mh.cx - from.x) * f
+      const z = from.z + (mh.cz - from.z) * f
+      // A corridor as wide as the gap between the gatehouses.
+      for (const off of [-9, -4.5, 0, 4.5, 9]) this.sight.push([x - this.gateIn.z * off, z + this.gateIn.x * off])
+    }
   }
 
   // Trees everywhere but across the tiger's road (it would run through the
@@ -922,6 +939,21 @@ export class AnamFlight {
   // Shot i at k (0..1): the camera move for that landmark.
   #shotPose(t, k, move) {
     const s = t.shot
+    if (t.key === 'gate' && this.gateAt) {
+      // As in the photograph: from the road outside, square on and at eye
+      // level, both gatehouses filling the frame and 본관 framed between
+      // them at the end of the lawn; a slow walk in toward the gate.
+      const e = THREE.MathUtils.smootherstep(k, 0, 1)
+      const g = this.gateAt
+      // Framed as the photograph: on a 36° lens the 27 m gate spans the lower
+      // half of the frame (top ~37%, foot ~92%), sky above.
+      const D = THREE.MathUtils.lerp(this.portrait ? 120 : 84, this.portrait ? 108 : 74, e)
+      const pos = g.clone().addScaledVector(this.gateIn, -D)
+      pos.y = Math.max(this.groundAt(g.x, g.z), this.groundAt(pos.x, pos.z)) + 1.8
+      const look = g.clone()
+      look.y = this.groundAt(g.x, g.z) + 19
+      return { pos, look, a: Math.atan2(-this.gateIn.x, -this.gateIn.z) }
+    }
     const e = THREE.MathUtils.smootherstep(k, 0, 1)
     const mid = (s.a0 + s.a1) / 2
     let a = mid
@@ -1212,15 +1244,9 @@ export class AnamFlight {
           add(prism(shaft, top - 1, tTop), STYLE.g, seed, base, tTop, shaft)
           const band = offsetPoly(shaft, 0.3)
           add(prism(band, tTop - 0.2, tTop + 0.35), BST.trim, seed, base, tTop, band)
-          if (b.n === '본관') {
-            // The clock tower's steep slate spire.
-            const spire = new THREE.ConeGeometry(tw * 0.74, tw * 1.25, 4, 1)
-            spire.rotateY(Math.PI / 4)
-            spire.translate(0, tTop + 0.35 + tw * 0.625, 0)
-            spire.applyMatrix4(m)
-            add(spire, BST.slate, seed, base, tTop, shaft)
-          } else {
-            // Battlements: a parapet with merlons, and a pinnacle at each corner.
+          {
+            // Battlements, as on the real towers (본관's clock tower included,
+            // which has no spire): a parapet with merlons, a pinnacle at each corner.
             add(ring(band, 0.55, tTop + 0.35, tTop + 1.5), BST.trim, seed, base, tTop, band)
             const h = tw / 2 + 0.3
             const nM = Math.max(3, Math.round(tw / 1.4))
@@ -1426,10 +1452,13 @@ export class AnamFlight {
       if (d < bd) ((bd = d), (best = k / 600))
     }
     const at = this.route.getPointAt(best)
-    const tan = this.route.getTangentAt(best).setY(0).normalize()
+    // Square to the axis 정문 – 중앙광장 – 본관, as the real gate stands:
+    // local z runs from outside in toward 본관, local x across the road.
+    const mainHall = DATA.buildings.filter((x) => x.n === '본관').map((x) => obb(x.p))[0]
+    const tan = mainHall ? new THREE.Vector3(mainHall.cx - at.x, 0, mainHall.cz - at.z).normalize() : this.route.getTangentAt(best).setY(0).normalize()
     const g = new THREE.Group()
     g.position.set(at.x, 0, at.z)
-    g.rotation.y = -Math.atan2(tan.x, -tan.z) // local x runs across the road
+    g.rotation.y = -Math.atan2(tan.x, -tan.z)
 
     // Rock-faced grey granite: coursed blocks, each a different grey.
     const rubble = (() => {
@@ -1469,8 +1498,10 @@ export class AnamFlight {
       t.anisotropy = 8
       return t
     })()
-    const stoneM = new THREE.MeshStandardMaterial({ map: rubble, color: '#c9cbcc', roughness: 0.92 })
-    const trimM = new THREE.MeshStandardMaterial({ color: '#9fa1a3', roughness: 0.88 })
+    // Floodlit at night: the stone carries a warm glow of its own (its own
+    // texture as the glow), so the gate is the brightest thing in its shot.
+    const stoneM = new THREE.MeshStandardMaterial({ map: rubble, color: '#c9cbcc', roughness: 0.92, emissive: '#ffcf9a', emissiveMap: rubble, emissiveIntensity: 0.32 })
+    const trimM = new THREE.MeshStandardMaterial({ color: '#9fa1a3', roughness: 0.88, emissive: '#ffcf9a', emissiveIntensity: 0.22 })
     const stoneGeos = []
     const trimGeos = []
     const worldUV = (geo) => {
@@ -1487,6 +1518,7 @@ export class AnamFlight {
     const box = (w, h, d, x, y, z, trim = false) => (trim ? trimGeos : stoneGeos).push(worldUV(new THREE.BoxGeometry(w, h, d).translate(x, y, z)).toNonIndexed())
     // A little gable cap (a pinnacle's roof) on a buttress.
     const gablet = (w, d, h, x, y, z) => {
+      h *= 1.6 // tall, sharp caps, as on the real buttresses
       const s = new THREE.Shape([new THREE.Vector2(-w / 2, 0), new THREE.Vector2(w / 2, 0), new THREE.Vector2(0, h)])
       const geo = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false })
       geo.translate(x, y, z - d / 2)
@@ -1559,15 +1591,17 @@ export class AnamFlight {
     }
     const iron = (this.#ironMat ??= this.#makeIron())
 
-    const span = THREE.MathUtils.clamp(o.L * 0.9, 14, 20)
-    const TW = 4.6 // tall tower, across
-    const TD = 5.2 // and along the road
-    const TH = 17
-    const WL = 9.5 // arch wall length
-    const WH = 10.5
+    // Proportions taken off the photograph: each gatehouse ~17 m wide, the
+    // tall tower a little higher than that, the road between ~1.2x wider.
+    const span = THREE.MathUtils.clamp(o.L * 1.1, 18, 22)
+    const TW = 4.2 // tall tower, across
+    const TD = 4.8 // and along the road
+    const TH = 20
+    const WL = 9.4 // arch wall length
+    const WH = 12.5
     const WD = 3.0
-    const OW = 3.4 // outer tower
-    const OH = 13.5
+    const OW = 3.6 // outer tower
+    const OH = 15.5
     for (const s of [-1, 1]) {
       const tx = s * (span / 2 + TW / 2)
       // Tall tower: base course, shaft, parapet with battlements.
@@ -1576,14 +1610,14 @@ export class AnamFlight {
       box(TW + 0.5, 0.45, TD + 0.5, tx, TH + 0.2, 0, true)
       crenels(tx, TH + 0.4, TW + 0.5, TD + 0.5, 4)
       // Buttresses on every corner and up the middle of the road faces.
-      for (const cx of [-1, 1]) for (const cz of [-1, 1]) buttress(tx + cx * (TW / 2 + 0.05), cz * (TD / 2 + 0.05), TH * 1.04, 0.85, 0.85)
-      for (const cz of [-1, 1]) buttress(tx, cz * (TD / 2 + 0.25), TH * 0.95, 0.7, 0.5)
-      buttress(tx - s * (TW / 2 + 0.25), 0, TH * 0.95, 0.5, 0.7)
+      for (const cx of [-1, 1]) for (const cz of [-1, 1]) buttress(tx + cx * (TW / 2 + 0.1), cz * (TD / 2 + 0.1), TH * 1.06, 1.1, 1.1)
+      for (const cz of [-1, 1]) for (const dx of [-0.75, 0.75]) buttress(tx + dx, cz * (TD / 2 + 0.3), TH * 0.97, 0.55, 0.6)
+      buttress(tx - s * (TW / 2 + 0.3), 0, TH * 0.97, 0.6, 0.8)
       // Arch wall, then the outer tower.
       const w0 = s * (span / 2 + TW)
       const x0 = Math.min(w0, w0 + s * WL)
       const x1 = Math.max(w0, w0 + s * WL)
-      archWall(x0, x1, WH, WD, 5.6, 5.4, 8.3)
+      archWall(x0, x1, WH, WD, 5.8, 6.2, 9.4)
       box(WL, 0.4, WD + 0.4, (x0 + x1) / 2, WH + 0.2, 0, true)
       crenels((x0 + x1) / 2, WH + 0.4, WL, WD + 0.4, 6, 0.7)
       const ox = w0 + s * (WL + OW / 2)
@@ -1645,12 +1679,14 @@ export class AnamFlight {
     lamp.position.set(0, 7, 0)
     g.add(lamp)
     this.gateLight = lamp
+    // Full size: the real gatehouses are larger than the first estimate.
+    g.scale.setScalar(1.35)
     this.gate = g
     this.scene.add(g)
     // The gate shot frames both gatehouses, 본관 between them.
     const tg = this.targets?.find((t) => t.key === 'gate')
     if (tg) {
-      const r = span / 2 + TW + 3
+      const r = (span / 2 + TW + 3) * 1.35
       tg.anchor.x = at.x
       tg.anchor.z = at.z
       tg.foot = { x0: at.x - r, x1: at.x + r, z0: at.z - r, z1: at.z + r, base: null, h: 20 }
@@ -1659,6 +1695,7 @@ export class AnamFlight {
     const main = DATA.buildings.filter((x) => x.n === '본관').map((x) => obb(x.p))[0]
     this.gateIn = tan.clone()
     if (main && (main.cx - at.x) * tan.x + (main.cz - at.z) * tan.z < 0) this.gateIn.negate()
+    this.gateAt = new THREE.Vector3(at.x, 0, at.z)
   }
 
   #gateWash() {
@@ -1740,6 +1777,8 @@ export class AnamFlight {
       const q = this.route.getPointAt(u)
       const t = this.route.getTangentAt(u)
       const side = k % 2 ? 1 : -1
+      // None in the gateway, where the real gate has its planters.
+      if (this.gateAt && Math.hypot(q.x - this.gateAt.x, q.z - this.gateAt.z) < 34) continue
       this.lampAt.push([q.x - t.z * side * 6.5, q.z + t.x * side * 6.5])
     }
     const n = this.lampAt.length
@@ -1775,60 +1814,92 @@ export class AnamFlight {
     for (const l of this.lamps) l.instanceMatrix.needsUpdate = true
   }
 
-  // 호상: a bronze tiger, snarling, on a tall granite pedestal in a small
-  // paved plaza, the way it stands on campus. At night it is floodlit from
-  // the ground, its bronze catching a warm rim of light.
+  // 호상, as it stands on campus: a white granite tiger poised on top of a
+  // carved stone globe, the globe on a round stepped base, in a small paved
+  // plaza under the trees; floodlit at night.
   #buildStatue() {
     const [x, z] = DATA.landmarks.tiger
     const g = new THREE.Group()
     g.position.set(x, 0, z)
-    const stone = new THREE.MeshStandardMaterial({ color: '#ddd5c7', roughness: 0.8 })
-    const polished = new THREE.MeshStandardMaterial({ color: '#2f2b2a', roughness: 0.28, metalness: 0.25 })
-    const tier = (w, h, d, y, mat = stone) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)
-      m.position.y = y + h / 2
-      m.castShadow = m.receiveShadow = true
-      g.add(m)
-      return m
-    }
-    // Plaza: a round paved floor with a darker ring, granite benches round it.
+    const stone = new THREE.MeshStandardMaterial({ color: '#d9d6cf', roughness: 0.85 })
+    const pale = new THREE.MeshStandardMaterial({ color: '#c9c4ba', roughness: 0.9 })
+    // Plaza and the round stepped base.
     const plaza = new THREE.Mesh(new THREE.CylinderGeometry(10, 10.2, 0.4, 48), new THREE.MeshStandardMaterial({ color: '#c9c1b2', roughness: 0.9 }))
     plaza.position.y = -0.15
     plaza.receiveShadow = true
     g.add(plaza)
-    const ring = new THREE.Mesh(new THREE.RingGeometry(7.2, 7.8, 48).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#8f8576', roughness: 0.9 }))
-    ring.position.y = 0.06
-    g.add(ring)
-    tier(9.2, 1.0, 6.8, 0) // base step
-    tier(7.8, 0.9, 5.6, 1.0) // second step
-    tier(6.4, 2.4, 4.3, 1.9, polished) // die
-    tier(7.0, 0.5, 4.9, 4.3) // cap
-    // The name on the die, gold on polished granite, front and back.
+    const step = (r, h, y, m = pale) => {
+      const s = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.1, h, 48), m)
+      s.position.y = y + h / 2
+      s.castShadow = s.receiveShadow = true
+      g.add(s)
+    }
+    step(4.2, 0.45, 0)
+    step(3.4, 0.45, 0.45)
+    step(2.3, 0.9, 0.9, stone)
+    // The globe: granite, the continents raised a little and paler, lines of
+    // latitude and longitude cut into it.
+    const gc = document.createElement('canvas')
+    gc.width = 1024
+    gc.height = 512
+    const gx = gc.getContext('2d')
+    gx.fillStyle = '#b9b5ad'
+    gx.fillRect(0, 0, 1024, 512)
+    let seed = 9
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+    gx.fillStyle = '#e4e0d8'
+    for (const [cx, cy, rx, ry] of [[200, 170, 120, 90], [250, 330, 70, 110], [520, 150, 150, 80], [560, 280, 80, 110], [760, 170, 180, 95], [860, 360, 70, 45], [430, 440, 160, 30]]) {
+      gx.beginPath()
+      for (let k = 0; k <= 40; k++) {
+        const a = (k / 40) * Math.PI * 2
+        const w = 0.75 + rnd() * 0.45
+        gx.lineTo(cx + Math.cos(a) * rx * w, cy + Math.sin(a) * ry * w)
+      }
+      gx.fill()
+    }
+    gx.strokeStyle = 'rgba(70,66,60,0.55)'
+    gx.lineWidth = 3
+    for (let k = 1; k < 8; k++) {
+      gx.beginPath()
+      gx.moveTo(0, (k * 512) / 8)
+      gx.lineTo(1024, (k * 512) / 8)
+      gx.stroke()
+    }
+    for (let k = 0; k < 12; k++) {
+      gx.beginPath()
+      gx.moveTo((k * 1024) / 12, 0)
+      gx.lineTo((k * 1024) / 12, 512)
+      gx.stroke()
+    }
+    const gt = new THREE.CanvasTexture(gc)
+    gt.colorSpace = THREE.SRGBColorSpace
+    gt.anisotropy = 8
+    const R = 1.9
+    const globe = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 32), new THREE.MeshStandardMaterial({ map: gt, roughness: 0.8, bumpMap: gt, bumpScale: 2 }))
+    globe.position.y = 1.8 + R * 0.96
+    globe.castShadow = globe.receiveShadow = true
+    g.add(globe)
+    this.globeTop = 1.8 + R * 1.9
+    // The name on a low stone in front.
     const c = document.createElement('canvas')
-    c.width = 1024
-    c.height = 384
+    c.width = 512
+    c.height = 192
     const cx = c.getContext('2d')
     cx.fillStyle = '#2f2b2a'
-    cx.fillRect(0, 0, 1024, 384)
-    cx.strokeStyle = '#c9a25a'
-    cx.lineWidth = 6
-    cx.strokeRect(20, 20, 984, 344)
+    cx.fillRect(0, 0, 512, 192)
     cx.fillStyle = '#efcf83'
     cx.textAlign = 'center'
     cx.textBaseline = 'middle'
-    cx.font = '900 190px "Noto Serif KR", serif'
-    cx.fillText('虎 像', 512, 165)
-    cx.font = '700 48px "Pretendard Variable", Pretendard, sans-serif'
-    cx.fillText('KOREA UNIVERSITY', 512, 305)
+    cx.font = '900 96px "Noto Serif KR", serif'
+    cx.fillText('虎 像', 256, 100)
     const tex = new THREE.CanvasTexture(c)
     tex.colorSpace = THREE.SRGBColorSpace
-    tex.anisotropy = 8
-    for (const f of [1, -1]) {
-      const p = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.95), new THREE.MeshBasicMaterial({ map: tex, color: '#d8d0c0' }))
-      p.position.set(0, 3.1, f * 2.16)
-      if (f < 0) p.rotation.y = Math.PI
-      g.add(p)
-    }
+    const block = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 0.7), pale)
+    block.position.set(0, 0.45, 4.9)
+    g.add(block)
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.75), new THREE.MeshBasicMaterial({ map: tex, color: '#d8d0c0' }))
+    plate.position.set(0, 0.48, 5.26)
+    g.add(plate)
     // Benches and lantern posts round the plaza.
     const postM = new THREE.MeshStandardMaterial({ color: '#23262e', roughness: 0.6, metalness: 0.5 })
     const globeM = new THREE.MeshBasicMaterial({ color: '#ffd9a0' })
@@ -1837,77 +1908,67 @@ export class AnamFlight {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 3.6, 8), postM)
       post.position.set(Math.sin(a) * 9, 1.8, Math.cos(a) * 9)
       g.add(post)
-      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 10), globeM)
-      globe.position.set(Math.sin(a) * 9, 3.8, Math.cos(a) * 9)
-      g.add(globe)
-      const bench = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.5, 0.9), stone)
-      bench.position.set(Math.sin(a + Math.PI / 4) * 8.6, 0.3, Math.cos(a + Math.PI / 4) * 8.6)
-      bench.rotation.y = a + Math.PI / 4
-      bench.castShadow = bench.receiveShadow = true
-      g.add(bench)
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 10), globeM)
+      bulb.position.set(Math.sin(a) * 9, 3.8, Math.cos(a) * 9)
+      g.add(bulb)
     }
-    // Ground floodlights: little glowing fixtures, and the light itself.
+    // Floodlights in the paving, and the light itself.
     const fixM = new THREE.MeshBasicMaterial({ color: '#fff0d0' })
-    for (const [fx, fz] of [[-5.5, 6.6], [5.5, 6.6], [0, -7.2]]) {
+    for (const [fx, fz] of [[-5, 6.2], [5, 6.2], [0, -7]]) {
       const fix = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.2, 12), fixM)
       fix.position.set(fx, 0.12, fz)
       g.add(fix)
-      const sp = new THREE.SpotLight('#ffcf94', 260, 30, 0.22, 0.7, 2)
+      const sp = new THREE.SpotLight('#fff1dc', 240, 30, 0.3, 0.7, 2)
       sp.position.set(fx, 0.3, fz)
-      sp.target.position.set(0, 7.2, 0)
+      sp.target.position.set(0, 5, 0)
       g.add(sp, sp.target)
     }
     this.statue = g
     this.scene.add(g)
-    // The bronze: the same tiger, struck in metal, held in its snarl.
-    this.bronze = new RunTiger(this.scene, undefined, { scale: 0.042, fur: 0, rim: 0 })
+    // The tiger itself: white granite, lightly veined, poised on the globe.
+    this.bronze = new RunTiger(this.scene, undefined, { scale: 0.03, fur: 0, rim: 0 })
     this.bronze.onReady = () => {
-      // Cast bronze with the stripes still in it as darker patina, and a
-      // warm rim where the light grazes it, so it reads even at night.
       this.bronze.group.traverse((o) => {
         if (!o.isMesh) return
         const map = o.material.map
-        const mat = new THREE.MeshStandardMaterial({ map, metalness: 0.55, roughness: 0.3, envMapIntensity: 1.6 })
+        const mat = new THREE.MeshStandardMaterial({ map, metalness: 0, roughness: 0.75 })
         mat.onBeforeCompile = (sh) => {
           sh.fragmentShader = sh.fragmentShader
             .replace(
               '#include <map_fragment>',
               `#include <map_fragment>
               {
+                // Carved stone: the coat's stripes survive only as a faint grain.
                 float lum = dot(diffuseColor.rgb, vec3(0.333));
-                float stripe = smoothstep(0.45, 0.2, lum);
-                diffuseColor.rgb = mix(vec3(0.8, 0.56, 0.3), vec3(0.22, 0.14, 0.08), stripe);
+                diffuseColor.rgb = mix(vec3(0.9, 0.89, 0.86), vec3(0.74, 0.73, 0.7), smoothstep(0.45, 0.2, lum) * 0.6);
               }`,
             )
             .replace(
               '#include <emissivemap_fragment>',
               `#include <emissivemap_fragment>
-              {
-                float fr = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 3.0);
-                totalEmissiveRadiance += vec3(1.0, 0.68, 0.32) * fr * 0.32 + diffuseColor.rgb * 0.05;
-              }`,
+              totalEmissiveRadiance += diffuseColor.rgb * 0.08;`,
             )
         }
         o.material = mat
         o.castShadow = true
       })
-      // The 호상's stance: head low and pushed forward, a snarl, the
-      // shoulders sunk as if about to spring, the tail curling up.
-      const gt = this.bronze.gait
-      gt.mix = 1
-      gt.hold([
-        ['c_jaw_00', 0.42],
-        ['c_neck_00', 0.2],
-        ['c_neck_01', 0.12],
-        ['c_head_00', -0.08],
-        ['c_chest_00', 0.08],
-        ['l_femurRibbonFront_00', -0.18],
-        ['r_femurRibbonFront_00', 0.08],
-        ['l_tibiaRibbonFront_00', -0.25],
-        ['c_tail_00', 0.18, 0.15],
-        ['c_tail_02', -0.12, 0.2],
-        ['c_tail_04', -0.2, 0.2],
-        ['c_tail_06', -0.25, 0.15],
+      const gt2 = this.bronze.gait
+      gt2.mix = 1
+      // Poised, head up and alert, as the statue stands.
+      // Crouched along the top of the globe, head low and forward, as the
+      // statue lies in wait.
+      gt2.hold([
+        ['c_jaw_00', 0.15],
+        ['c_neck_00', 0.22],
+        ['c_neck_01', 0.1],
+        ['c_head_00', -0.05],
+        ['l_femurRibbonFront_00', -0.35],
+        ['r_femurRibbonFront_00', -0.35],
+        ['l_tibiaRibbonFront_00', 0.5],
+        ['r_tibiaRibbonFront_00', 0.5],
+        ['c_tail_00', 0.1, 0.1],
+        ['c_tail_02', -0.08, 0.15],
+        ['c_tail_04', -0.12, 0.15],
       ])
       this.bronze.group.visible = true
       this.#placeBronze()
@@ -1917,7 +1978,7 @@ export class AnamFlight {
   #placeBronze() {
     if (!this.bronze?.ready || !this.statue) return
     const g = this.statue
-    this.bronze.group.position.set(g.position.x, g.position.y + 4.8, g.position.z)
+    this.bronze.group.position.set(g.position.x, g.position.y + (this.globeTop ?? 5.5) - 0.35, g.position.z)
     this.bronze.group.rotation.y = g.rotation.y
   }
 
@@ -2074,8 +2135,11 @@ export class AnamFlight {
       const e = THREE.MathUtils.smoothstep(u, 0, SHOWS_START)
       pos = m.pos.lerp(g.clone().add(new THREE.Vector3(0, m.pos.y * 0.55, (m.pos.z - m.look.z) * 0.55)), e * 0.6)
       look = m.look.lerp(g, e * 0.6)
+      this.lens = 0
     } else if (this.shows) {
       ;({ pos, look } = this.#shotPose(this.shows[i], k, MOVES[i % MOVES.length]))
+      // The gate is shot on a longer lens, as in the photograph of it.
+      this.lens = this.shows[i].key === 'gate' ? 1 - up : 0
       if (up > 0) {
         pos = pos.clone().lerp(new THREE.Vector3(-560, 540, 880), THREE.MathUtils.smootherstep(up, 0, 1))
         look = look.clone().lerp(new THREE.Vector3(60, 0, -380), THREE.MathUtils.smootherstep(up, 0, 0.45))
@@ -2173,7 +2237,7 @@ export class AnamFlight {
     this.rush = THREE.MathUtils.clamp((this.speed - 120) / 500, 0, 0.35)
     const shiver = Math.sin(this.time * 31) * Math.sin(this.time * 17) * 0.006 * this.rush
     this.camera.quaternion.copy(this.camQ).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.roll + shiver))
-    const fov = (this.portrait ? 74 : 58) + this.rush * 16
+    const fov = THREE.MathUtils.lerp(this.portrait ? 74 : 58, this.portrait ? 52 : 36, (this.map ?? 0) > 0.5 ? 0 : this.lens ?? 0) + this.rush * 16
     if (Math.abs(fov - this.camera.fov) > 0.01) {
       this.camera.fov = fov
       this.camera.updateProjectionMatrix()

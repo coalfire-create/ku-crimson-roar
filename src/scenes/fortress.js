@@ -16,11 +16,11 @@ export const PARTS = [
   { key: 'base', name: '화강암 기단', en: 'Granite Plinth', info: '건물 전체를 받치는 화강암 기단과 현관 계단.', dir: [0, -1.1, 0.3] },
   { key: 'wingL', name: '서쪽 날개', en: 'West Wing', info: '탑에서 서쪽으로 뻗은 3층 석조 날개. 거친 화강암을 켜켜이 쌓아 올렸다.', dir: [-1.6, 0.1, 0] },
   { key: 'wingR', name: '동쪽 날개', en: 'East Wing', info: '서쪽과 대칭을 이루는 날개. 좌우 대칭은 본관 정면의 위엄을 만든다.', dir: [1.6, 0.1, 0] },
-  { key: 'windows', name: '첨두아치 창', en: 'Pointed-Arch Windows', info: '끝이 뾰족한 아치 창. 하늘로 치솟는 고딕 양식의 상징이다.', dir: [0, 0.2, 1.6] },
+  { key: 'windows', name: '석조 창', en: 'Stone-Framed Windows', info: '돌 틀과 세로 창살로 나뉜 긴 직사각형 창. 3층에 걸쳐 일정한 리듬으로 정면을 채운다.', dir: [0, 0.2, 1.6] },
   { key: 'buttress', name: '부벽', en: 'Buttresses', info: '벽을 바깥에서 받치는 돌기둥. 수직의 리듬으로 정면을 나눈다.', dir: [0, -0.3, 2.3] },
   { key: 'roof', name: '슬레이트 지붕', en: 'Slate Roof & Dormers', info: '짙은 슬레이트로 덮인 가파른 박공지붕과 지붕창.', dir: [0, 1.3, -0.4] },
-  { key: 'tower', name: '시계탑', en: 'Clock Tower', info: '정면 한가운데 솟은 시계탑. 멀리서도 고려대임을 알아보게 하는 실루엣.', dir: [0, 1.7, 0.5] },
-  { key: 'crown', name: '총안 흉벽과 첨탑', en: 'Battlements & Pinnacles', info: '탑 꼭대기를 두른 요철 성벽과 네 모서리의 팔각 첨탑. 석조 요새의 인상을 완성한다.', dir: [0, 2.8, 0.3] },
+  { key: 'tower', name: '중앙탑', en: 'Central Tower', info: '정면 한가운데 솟은 6층 중앙탑. 좌우 대칭 H자형 본관의 중심이자, 정문에서 똑바로 보이는 실루엣.', dir: [0, 1.7, 0.5] },
+  { key: 'crown', name: '총안 흉벽과 깃대', en: 'Battlements & Flags', info: '평평한 탑 꼭대기를 두른 요철 성벽과 네 모서리의 작은 망루, 그리고 두 개의 깃대.', dir: [0, 2.8, 0.3] },
   { key: 'portal', name: '정면 현관', en: 'Main Portal', info: '첨두아치로 깊게 파인 현관. 본관의 얼굴이 되는 입구.', dir: [0, -0.5, 2.9] },
 ]
 
@@ -86,6 +86,16 @@ function archShape(w, h) {
   s.absarc(-w / 2, h, w, 0, Math.PI / 3, false)
   s.absarc(w / 2, h, w, (2 * Math.PI) / 3, Math.PI, false)
   s.lineTo(-w / 2, 0)
+  return s
+}
+
+// A plain rectangular window, w wide, h tall, as on 본관's ranges.
+function rectShape(w, h) {
+  return new THREE.Shape([new THREE.Vector2(-w / 2, 0), new THREE.Vector2(w / 2, 0), new THREE.Vector2(w / 2, h), new THREE.Vector2(-w / 2, h)])
+}
+function rectFrame(w, h, t) {
+  const s = rectShape(w + t * 2, h + t)
+  s.holes.push(new THREE.Path(rectShape(w, h).getPoints()))
   return s
 }
 
@@ -575,8 +585,8 @@ export class Fortress {
       this.#part(side < 0 ? 'wingL' : 'wingR', [[[box(W, H, D, cx, P + H / 2, 0), box(W + 0.4, 0.6, D + 0.6, cx, P + H - 0.3, 0), box(W + 0.4, 0.5, D + 0.5, cx, P + 0.25, 0)], this.stone]])
     }
 
-    // Windows: three floors of pointed arches on both wings, front and back,
-    // glass set back inside a trim frame with a mullion.
+    // Windows: three floors of tall rectangular windows on both wings, front
+    // and back (as on the real 본관), glass inside a stone frame with a mullion.
     const glass = []
     const frames = []
     const sill = []
@@ -588,32 +598,37 @@ export class Fortress {
             const y = P + 1.6 + fl * 4.7
             const z = face * (front + 0.02)
             const ry = face < 0 ? Math.PI : 0
-            const w = fl === 2 ? 1.6 : 1.9
-            const h = fl === 2 ? 1.6 : 2.1
-            glass.push(lit(shapeAt(archShape(w, h), 0, x, y, z, ry), glow()))
-            frames.push(shapeAt(archFrame(w, h, 0.28), 0.35, x, y, face > 0 ? z - 0.05 : z + 0.05, ry))
-            frames.push(box(0.14, h + w * 0.7, 0.2, x, y + (h + w * 0.7) / 2, face * (front + 0.08)))
+            const w = 1.9
+            const h = fl === 2 ? 2.2 : 2.9
+            glass.push(lit(shapeAt(rectShape(w, h), 0, x, y, z, ry), glow()))
+            frames.push(shapeAt(rectFrame(w, h, 0.28), 0.35, x, y, face > 0 ? z - 0.05 : z + 0.05, ry))
+            frames.push(box(0.14, h, 0.2, x, y + h / 2, face * (front + 0.08)))
+            frames.push(box(w, 0.12, 0.2, x, y + h * 0.66, face * (front + 0.08)))
             sill.push(box(w + 0.8, 0.28, 0.6, x, y - 0.14, face * (front + 0.2)))
           }
-    // The tower: a tall lit window over the portal, a lit band of louvres
-    // and the clock face.
-    glass.push(lit(shapeAt(archShape(3.4, 9), 0, 0, P + 10.5, 7.03), 1.25))
-    frames.push(shapeAt(archFrame(3.4, 9, 0.45), 0.5, 0, P + 10.5, 6.9))
-    for (const dx of [-0.6, 0.6]) frames.push(box(0.16, 11.6, 0.25, dx, P + 10.5 + 5.8, 7.1))
-    frames.push(box(3.6, 0.18, 0.25, 0, P + 15.5, 7.1))
-    const dial = new THREE.CircleGeometry(2.3, 48)
-    dial.translate(0, P + 25.4, 7.04)
-    glass.push(lit(dial, 1.5))
-    frames.push(shapeAt(Object.assign(new THREE.Shape().absarc(0, 0, 2.75, 0, Math.PI * 2), { holes: [new THREE.Path().absarc(0, 0, 2.3, 0, Math.PI * 2, true)] }), 0.4, 0, P + 25.4, 6.95))
-    // Clock hands at ten past ten.
-    const hand = (len, ang) => {
-      const g = new THREE.BoxGeometry(0.16, len, 0.08)
-      g.translate(0, len / 2, 0)
-      g.rotateZ(ang)
-      g.translate(0, P + 25.4, 7.2)
-      return g
+    // The central tower: no clock (that is the old library's), just floor
+    // upon floor of paired rectangular windows over the portal.
+    for (let fl = 0; fl < 5; fl++)
+      for (const dx of [-1.5, 1.5]) {
+        const y = P + 7.2 + fl * 4.4
+        glass.push(lit(shapeAt(rectShape(1.6, 2.6), 0, dx, y, 7.03), glow()))
+        frames.push(shapeAt(rectFrame(1.6, 2.6, 0.25), 0.35, dx, y, 6.95))
+        sill.push(box(2.2, 0.25, 0.5, dx, y - 0.12, 7.2))
+      }
+    // End pavilions: each wing ends in a block stepped forward, gabled to the front.
+    const PW = 11
+    for (const side of [-1, 1]) {
+      const cx = side * (X0 + W - PW / 2)
+      frames.push(box(PW, H + 1.5, 5, cx, P + (H + 1.5) / 2, front + 2.5))
+      for (let fl = 0; fl < 3; fl++)
+        for (const dx of [-2.4, 0, 2.4]) {
+          const y = P + 1.6 + fl * 4.7
+          glass.push(lit(shapeAt(rectShape(1.7, fl === 2 ? 2.2 : 2.9), 0, cx + dx, y, front + 5.03), glow()))
+          frames.push(shapeAt(rectFrame(1.7, fl === 2 ? 2.2 : 2.9, 0.25), 0.3, cx + dx, y, front + 4.95))
+        }
+      this.pavilions ??= []
+      this.pavilions.push(cx)
     }
-    sill.push(hand(1.4, Math.PI / 3), hand(2.0, -Math.PI / 3))
     this.#part('windows', [
       [glass, this.glass],
       [frames, this.trim],
@@ -660,6 +675,14 @@ export class Fortress {
       }
       // Chimneys.
       gables.push(box(1.6, 4, 1.6, side * (X0 + W * 0.55), P + H + RH - 0.8, -2))
+      // The end pavilion's front gable and its roof, running front to back.
+      const pcx = side * (X0 + W - 5.5)
+      const ptri = new THREE.Shape([new THREE.Vector2(-6.1, 0), new THREE.Vector2(6.1, 0), new THREE.Vector2(0, RH)])
+      const pr = new THREE.ExtrudeGeometry(ptri, { depth: D + 5.6, bevelEnabled: false })
+      pr.translate(pcx, P + H + 1.5, -D / 2 - 0.3)
+      roof.push(pr)
+      gables.push(shapeAt(new THREE.Shape([new THREE.Vector2(-5.5, 0), new THREE.Vector2(5.5, 0), new THREE.Vector2(0, RH - 0.5)]), 0.8, pcx, P + H + 1.5, front + 4.3))
+      dormerGlass.push(lit(shapeAt(rectShape(1.4, 2.2), 0, pcx, P + H + 2.3, front + 5.13), glow()))
     }
     this.#part('roof', [
       [roof, this.slate],
@@ -688,11 +711,23 @@ export class Fortress {
       const cap = new THREE.CylinderGeometry(1.25, 1.25, 0.5, 8)
       cap.translate(x, TOP + 3.2, z)
       crown.push(cap)
-      const spire = new THREE.ConeGeometry(1.05, 6.5, 8)
-      spire.translate(x, TOP + 3.4 + 3.25, z)
-      crown.push(spire)
+      // No spires: the real turrets end in a little crenellated top.
+      for (let q = 0; q < 4; q++) {
+        const a = (q / 4) * Math.PI * 2 + Math.PI / 4
+        crown.push(box(0.6, 0.7, 0.6, x + Math.cos(a) * 0.9, TOP + 3.8, z + Math.sin(a) * 0.9))
+      }
     }
     this.#part('crown', [[crown, this.stone]])
+    // Two flagpoles on the flat top of the tower, as on the real 본관.
+    for (const [fx, col] of [[-2.2, '#f4f1ea'], [2.2, '#a50034']]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 7, 8), new THREE.MeshStandardMaterial({ color: '#c9c9c9', metalness: 0.7, roughness: 0.3 }))
+      pole.position.set(fx, TOP + 3.5, 1)
+      this.scene.add(pole)
+      const flag = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.4, 8, 1), new THREE.MeshStandardMaterial({ color: col, side: THREE.DoubleSide, roughness: 0.8 }))
+      flag.position.set(fx + 1.15, TOP + 6.2, 1)
+      this.scene.add(flag)
+      ;(this.flags ??= []).push(flag)
+    }
 
     // The portal: a deep pointed arch with a dark door and lanterns.
     const portal = [shapeAt(archFrame(5, 4.6, 1.1), 2.6, 0, P, 7.0, 0, true), shapeAt(archFrame(4.2, 4.2, 0.4), 1.4, 0, P, 7.6)]
@@ -732,6 +767,18 @@ export class Fortress {
   }
 
   render(dt) {
+    // The flags stir in the wind.
+    if (this.flags) {
+      this.ft = (this.ft ?? 0) + dt
+      for (const [k, f] of this.flags.entries()) {
+        const p = f.geometry.attributes.position
+        for (let i = 0; i < p.count; i++) {
+          const u = p.getX(i) + 1.1
+          p.setZ(i, Math.sin(this.ft * 4 + u * 3 + k) * 0.18 * u)
+        }
+        p.needsUpdate = true
+      }
+    }
     this.time += dt
     const p = this.progress
     const { t, a, b } = this.season()

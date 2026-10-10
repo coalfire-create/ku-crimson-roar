@@ -3,6 +3,7 @@ import gsap from 'gsap'
 import * as THREE from 'three'
 import Lenis from 'lenis'
 import { Rivalry } from './scenes/rivalry.js'
+import { Symbols3D } from './scenes/symbols3d.js'
 import { ShaderCanvas } from './shader-canvas.js'
 import { AURORA } from './scenes/shaders.js'
 import { Hero3D } from './scenes/hero3d.js'
@@ -271,6 +272,7 @@ async function boot() {
     const aurora = new ShaderCanvas(document.getElementById('cvAurora'), AURORA, { maxDpr: 1, uniforms: { uEnergy: 0, uBeat: 0 } })
     const flight = new AnamFlight(document.getElementById('cvFlight'))
     const rivalry = new Rivalry(document.getElementById('cvRivalry'))
+    const symbols = new Symbols3D(document.getElementById('cvSymbols'))
     if (import.meta.env.DEV) window.__flight = flight
     chapterReady = flight.terrainReady
     // The campus tiger's roar: the growl and a jolt through the frame.
@@ -308,7 +310,7 @@ async function boot() {
       { el: document.getElementById('frontier'), view: flight },
       { el: document.getElementById('fields'), view: fields },
       { el: document.getElementById('rivalry'), view: rivalry },
-      { el: document.getElementById('symbols'), view: { render() {} } },
+      { el: document.getElementById('symbols'), view: symbols },
       {
         el: document.getElementById('gate'),
         view: {
@@ -340,7 +342,7 @@ async function boot() {
       const parts = el.innerHTML.split(/<br\s*\/?>/i)
       el.innerHTML = parts.map((p) => `<span class="line"><span class="line__in">${p.trim()}</span></span>`).join('')
     }
-    document.querySelectorAll('.fortress__head .h2, .pride__copy .h2, .flight__head .h2, .rivalry__copy .h2, .symbols__head .h2, .gate__title').forEach(splitLines)
+    document.querySelectorAll('.fortress__head .h2, .pride__copy .h2, .flight__head .h2, .rivalry__copy .h2, .gate__title').forEach(splitLines)
     document.querySelectorAll('.gate__top, .gate__row').forEach((el) => el.classList.add('gate-extra'))
     scenes.slice(1).forEach((s) => {
       s.lines = s.el.querySelectorAll('.line__in')
@@ -864,15 +866,17 @@ async function boot() {
       scoreRows.forEach((li, i) => li.classList.toggle('is-on', p > 0.26 + i * 0.08))
       totalEl.classList.toggle('is-on', p > 0.7)
     }
-    /* 상징: three cards stand up in turn, like pages turning toward you. */
-    const symEls = [...document.querySelectorAll('.sym')]
+    /* 상징: each set's words come up while the camera holds on it. */
+    const symEls = [...document.querySelectorAll('.symx')]
     const symbolsEl = document.getElementById('symbols')
     const updateSymbols = () => {
       const p = progress(symbolsEl)
+      symbols.progress = p
+      const a = symbols.act()
       symEls.forEach((el, i) => {
-        const k = ease(clamp01((p - 0.05 - i * 0.12) / 0.18))
-        el.style.opacity = k.toFixed(3)
-        el.style.transform = `rotateX(${((1 - k) * 55).toFixed(2)}deg) translateY(${((1 - k) * 40).toFixed(1)}px)`
+        const k = clamp01(1 - Math.abs(a - i) * 2.2)
+        el.style.opacity = ease(k).toFixed(3)
+        el.style.transform = `translateY(${((1 - ease(k)) * 30).toFixed(1)}px)`
       })
     }
 

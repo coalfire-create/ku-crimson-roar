@@ -2339,142 +2339,56 @@ button.pill:not([class*='pill--']) {
   }
 }
 
-/* ---------- 06 상징 ---------- */
+/* ---------- 06 상징: three full-screen 3D sets ---------- */
 .symbols {
-  height: 320vh;
+  height: 480vh;
 }
 .symbols .scene__sticky {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 0 var(--gutter);
-  background: radial-gradient(80% 60% at 50% 70%, #3a0812, #0d0508 70%);
+  background: #0a0306;
 }
-.symbols__head {
-  margin-bottom: 4vh;
+.symx__kicker {
+  position: absolute;
+  top: 92px;
+  left: var(--gutter);
+  z-index: 2;
 }
-.symbols__cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: clamp(14px, 2vw, 28px);
-  perspective: 1200px;
-}
-.sym {
-  padding: 26px 24px 28px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
-  backdrop-filter: blur(10px);
-  transform-origin: 50% 100%;
+.symx {
+  position: absolute;
+  left: var(--gutter);
+  bottom: 12vh;
+  z-index: 2;
+  max-width: 620px;
   opacity: 0;
+  transform: translateY(30px);
+  pointer-events: none;
 }
-.sym small {
-  display: block;
-  margin-top: 20px;
+.symx small {
   font-family: var(--grotesk);
-  font-size: 11px;
-  letter-spacing: 0.2em;
+  font-size: 12px;
+  letter-spacing: 0.24em;
   color: var(--sky);
 }
-.sym h3 {
+.symx h3 {
   margin-top: 6px;
-  font-size: clamp(26px, 2.6vw, 40px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-size: clamp(84px, 14vw, 220px);
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  line-height: 0.95;
+  text-shadow: 0 10px 60px rgba(0, 0, 0, 0.7);
 }
-.sym p {
-  margin-top: 10px;
-  font-size: 14.5px;
+.symx p {
+  margin-top: 18px;
+  font-size: clamp(15px, 1.2vw, 18px);
   line-height: 1.75;
-  color: rgba(246, 241, 236, 0.78);
-}
-.sym__art {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: clamp(130px, 18vh, 190px);
-  border-radius: 14px;
-  overflow: hidden;
-}
-.sym__art--crimson {
-  position: relative;
-  background: #a50034;
-  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.35);
-}
-.sym__art--crimson span {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 34%;
-  background: rgba(0, 0, 0, 0.18);
-  transform-origin: left;
-  animation: sym-wave 3.2s ease-in-out infinite;
-}
-.sym__art--crimson span:nth-child(2) {
-  height: 22%;
-  background: rgba(255, 255, 255, 0.08);
-  animation-delay: -1s;
-}
-.sym__art--crimson span:nth-child(3) {
-  height: 12%;
-  background: rgba(0, 0, 0, 0.22);
-  animation-delay: -2s;
-}
-@keyframes sym-wave {
-  50% {
-    transform: scaleY(1.5) skewY(-4deg);
-  }
-}
-.sym__art--tiger {
-  background: radial-gradient(circle at 50% 45%, #f4ede0, #d9cdb8);
-}
-.sym__art--tiger img {
-  display: block;
-  height: 80%;
-  width: auto;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.3));
-}
-.sym__art--makgeolli {
-  background: radial-gradient(circle at 50% 40%, #4a3a24, #241a10);
-}
-.sym__art--makgeolli svg {
-  width: 62%;
-  height: auto;
-  animation: sym-tilt 4s ease-in-out infinite;
-}
-@keyframes sym-tilt {
-  50% {
-    transform: rotate(-4deg) translateY(-3px);
-  }
+  color: rgba(246, 241, 236, 0.86);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
 }
 @media (max-width: 760px) {
-  .symbols .scene__sticky {
-    justify-content: flex-start;
-    padding-top: 92px;
+  .symx {
+    bottom: 9vh;
+    right: var(--gutter);
   }
-  .symbols__cards {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-  .sym {
-    display: grid;
-    grid-template-columns: 92px 1fr;
-    column-gap: 14px;
-    padding: 12px;
-  }
-  .sym__art {
-    grid-row: span 3;
-    height: 92px;
-  }
-  .sym small {
-    margin-top: 0;
-  }
-  .sym h3 {
-    font-size: 22px;
-    margin-top: 2px;
-  }
-  .sym p {
-    font-size: 12.5px;
-    line-height: 1.6;
-    margin-top: 4px;
+  .symx p br {
+    display: none;
   }
 }
