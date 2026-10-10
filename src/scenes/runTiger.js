@@ -52,9 +52,12 @@ function bengal(material, box, { rim = 0.9, shell = null } = {}) {
           float belly = band * mid * torso;
           float face = smoothstep(0.83, 0.93, vBind.z) * smoothstep(0.84, 0.66, vBind.y);
           float paws = smoothstep(0.06, 0.015, vBind.y) * 0.7;
-          float pale = clamp(max(max(belly, face), paws), 0.0, 1.0);
-          vec3 orange = vec3(0.86, 0.33, 0.06);
-          vec3 cream = vec3(0.95, 0.88, 0.76);
+          // The face is pale, not white: only the muzzle and chin go cream.
+          float pale = clamp(max(max(belly, face * 0.7), paws), 0.0, 1.0);
+          // A real Bengal coat: deep rust along the spine, warmer and lighter
+          // orange down the flanks, an off-white (never pure white) belly.
+          vec3 orange = mix(vec3(0.6, 0.19, 0.035), vec3(0.38, 0.105, 0.018), smoothstep(0.62, 0.95, vBind.y));
+          vec3 cream = vec3(0.78, 0.7, 0.56);
           // The texture is white fur with black stripes: keep the stripes dark.
           float lum = dot(diffuseColor.rgb, vec3(0.333));
           vec3 coat = mix(orange, cream, pale) * smoothstep(0.08, 0.75, lum);
@@ -140,7 +143,7 @@ function bengal(material, box, { rim = 0.9, shell = null } = {}) {
           '#include <map_fragment>',
           `#include <map_fragment>
           {
-            vec2 cell = vMapUv * 640.0;
+            vec2 cell = vMapUv * 820.0;
             vec2 id = floor(cell);
             float h = 0.35 + 0.65 * furHash(id);
             vec2 f = fract(cell) - 0.5 - (vec2(furHash(id + 17.1), furHash(id + 3.7)) - 0.5) * 0.7;
@@ -149,7 +152,14 @@ function bengal(material, box, { rim = 0.9, shell = null } = {}) {
             // a soft halo instead of shimmering noise.
             float px = length(fwidth(cell));
             // No shells over the bare face (eyes, nose, lips).
-            if (vFur < 0.4 || uShell > h || dot(f, f) > r * r || (px > 1.6 && uShell > 0.4)) discard;
+            if (vFur < 0.4 || uShell > h || (px > 1.6 && uShell > 0.4)) discard;
+            // Each strand's edge is antialiased (alpha to coverage) rather than
+            // cut, so the coat reads as soft hair instead of speckle.
+            float d2 = dot(f, f);
+            float aa = max(fwidth(d2) * 1.5, 1e-4);
+            float cov = 1.0 - smoothstep(r * r - aa, r * r + aa, d2);
+            if (cov < 0.02) discard;
+            diffuseColor.a = cov;
             diffuseColor.rgb *= mix(0.62, 1.15, uShell);
           }`,
         )
@@ -205,6 +215,7 @@ function addFur(mesh, box, { shells = 8, len = 1.4, rim = 0.9 } = {}) {
     const k = i / shells
     const mat = mesh.material.clone()
     mat.transparent = false
+    mat.alphaToCoverage = true
     bengal(mat, box, { rim: rim * k, shell: { k, len } })
     const s = new THREE.SkinnedMesh(mesh.geometry, mat)
     s.bind(mesh.skeleton, mesh.bindMatrix)
@@ -226,6 +237,7 @@ export class RunTiger {
     this.group.visible = false
     scene.add(this.group)
     this.speed = 0
+    this.scale = scale
     const loader = new GLTFLoader()
     loader.setMeshoptDecoder(MeshoptDecoder)
     loader.load(url, (g) => {
@@ -250,7 +262,12 @@ export class RunTiger {
       this.mixer = new THREE.AnimationMixer(m)
       if (g.animations[0]) this.mixer.clipAction(g.animations[0]).play()
       this.gait = new TigerGait(m)
+      // Body length in model units, so strides scale with the animal.
+      const size = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3())
+      this.gait.bodyLen = Math.max(size.x, size.z) / scale
+      this.size = size // world-space extent, for whoever rides it
       this.ready = true
+      this.onReady?.()
     })
   }
 
@@ -258,16 +275,18 @@ export class RunTiger {
   update(dt, pos, dir, speed, roar = 0) {
     if (!this.ready) return
     this.group.visible = true
-    this.speed += (THREE.MathUtils.clamp(speed / 45, 0, 1) - this.speed) * Math.min(1, dt * 2.5)
+    // Ground speed in m/s, eased so a sudden stop slows through a few steps.
+    this.speed += (Math.min(speed, 40) - this.speed) * Math.min(1, dt * 3)
     this.group.position.copy(pos)
     const yaw = Math.atan2(dir.x, dir.z)
     let d = yaw - this.group.rotation.y
     d = Math.atan2(Math.sin(d), Math.cos(d))
     this.group.rotation.y += d * Math.min(1, dt * 5)
     this.mixer.update(dt)
-    const run = THREE.MathUtils.smoothstep(this.speed, 0.08, 0.35)
-    this.gait.mix = run
-    if (run > 0.001) this.gait.update(dt, THREE.MathUtils.lerp(0.45, 1, this.speed))
+    // Standing still it breathes in its idle clip; moving, the gait takes over.
+    const moving = THREE.MathUtils.smoothstep(this.speed, 0.1, 0.5)
+    this.gait.mix = moving
+    if (moving > 0.001) this.gait.update(dt, this.speed / this.scale)
     this.gait.roar(roar)
   }
 }

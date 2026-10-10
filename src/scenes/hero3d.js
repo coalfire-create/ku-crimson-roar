@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { RunTiger } from './runTiger.js'
 
 // The Awakening: the real tiger stands in the dark, lit by one warm key light
@@ -13,7 +14,48 @@ import { RunTiger } from './runTiger.js'
 // tiger turns away toward the campus. Same interface as the ember Tiger:
 // progress, intro, open, blink, dragged, roar(), resize(), render(dt).
 
-const SCALE = 0.02 // real size: about 4 m nose to tail
+const SCALE = 0.026 // a big male: about 5 m nose to tail
+
+// The opening: the tiger roars, bursts into embers, and the embers gather
+// into the university's shield; a breath later they flow back into the
+// tiger. Each particle starts on the tiger's (skinned) surface and ends on a
+// pixel of the emblem, swinging out on a curve between the two.
+const MORPH_VERT = /* glsl */ `
+  attribute vec3 aTo;
+  attribute vec3 aCol;
+  attribute float aSeed;
+  uniform float uM, uTime, uSize, uFlash;
+  varying vec3 vCol;
+  varying float vA;
+  void main(){
+    float d = aSeed * 0.35;
+    float m = clamp((uM - d) / 0.65, 0.0, 1.0);
+    float e = m * m * (3.0 - 2.0 * m);
+    vec3 swirl = vec3(sin(aSeed * 40.0 + uTime * 1.3), cos(aSeed * 31.0 + uTime), sin(aSeed * 17.0 + uTime * 0.7));
+    vec3 mid = mix(position, aTo, 0.5) + swirl * 0.9 + vec3(0.0, 0.4, 0.6);
+    vec3 p = (1.0 - e) * (1.0 - e) * position + 2.0 * (1.0 - e) * e * mid + e * e * aTo;
+    // Settled, the shield breathes a little.
+    p += swirl * 0.012 * e;
+    vCol = mix(vec3(1.0, 0.45, 0.15), aCol, smoothstep(0.55, 1.0, e));
+    // A sweep of light across the shield as it locks into place.
+    float sweep = exp(-pow((aTo.x + aTo.y * 0.6) * 1.2 - (1.0 - uFlash) * 6.0 + 3.0, 2.0) * 2.0);
+    vCol += vec3(1.0, 0.85, 0.55) * (uFlash * 0.5 + sweep * uFlash) * e;
+    vA = smoothstep(0.0, 0.08, uM);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = uSize * mix(2.2, 1.0, e) / -mv.z;
+  }
+`
+const MORPH_FRAG = /* glsl */ `
+  varying vec3 vCol;
+  varying float vA;
+  void main(){
+    float r = length(gl_PointCoord - 0.5);
+    float a = smoothstep(0.5, 0.15, r) * vA;
+    if (a < 0.02) discard;
+    gl_FragColor = vec4(vCol * 1.25, a);
+  }
+`
 const FLOOR = 0
 
 const EMBER_VERT = /* glsl */ `
@@ -121,21 +163,29 @@ export class Hero3D {
     floor.receiveShadow = true
     this.scene.add(floor)
 
-    // Lights: warm key high front-left, crimson rim behind right, cold fill.
-    this.key = new THREE.SpotLight('#ffd2a6', 0, 30, 0.42, 0.65, 1.2)
+    // Soft studio bounce for the eyes, nose and the sheen of the coat.
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    this.scene.environmentIntensity = 0
+    pmrem.dispose()
+    // Lights as on a wildlife shoot at dusk: a big soft warm key front-left,
+    // a warm sun-like back light picking out the fur's edge, a cool sky fill.
+    this.key = new THREE.SpotLight('#ffe6cc', 0, 30, 0.5, 0.9, 1.2)
     this.key.position.set(-3.2, 5.2, 4.2)
     this.key.castShadow = true
     this.key.shadow.mapSize.set(2048, 2048)
     this.key.shadow.bias = -0.0004
     this.key.shadow.normalBias = 0.02
-    this.rim = new THREE.SpotLight('#ff4a30', 0, 30, 0.6, 0.6, 1.2)
+    this.key.shadow.radius = 6
+    this.rim = new THREE.SpotLight('#ffc89a', 0, 30, 0.6, 0.6, 1.2)
     this.rim.position.set(3.5, 3.0, -4.5)
-    this.rim2 = new THREE.SpotLight('#ff5a2a', 0, 30, 0.6, 0.7, 1.2)
+    this.rim2 = new THREE.SpotLight('#9fb4dc', 0, 30, 0.6, 0.7, 1.2)
     this.rim2.position.set(-4, 2.2, -3.5)
-    this.fill = new THREE.HemisphereLight('#4a5a78', '#1a0806', 0)
+    this.fill = new THREE.HemisphereLight('#7a8aa8', '#2a1a12', 0)
     this.scene.add(this.key, this.key.target, this.rim, this.rim.target, this.rim2, this.rim2.target, this.fill)
 
-    this.tiger = new RunTiger(this.scene, undefined, { scale: SCALE, fur: mobile ? 4 : 8, furLen: 1.2, rim: 0 })
+    // Dense fine fur up close: more, thinner shells.
+    this.tiger = new RunTiger(this.scene, undefined, { scale: SCALE, fur: mobile ? 5 : 10, furLen: 1.1, rim: 0 })
 
     // Embers rising off the floor.
     const n = mobile ? 500 : 1100
@@ -162,7 +212,8 @@ export class Hero3D {
       this.scene.add(m)
     }
 
-    this.composer = new EffectComposer(this.renderer)
+    // Multisampled, so each fur strand's soft edge (alpha to coverage) survives.
+    this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { samples: mobile ? 2 : 4, type: THREE.HalfFloatType }))
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.45, 0.6, 0.85)
     this.composer.addPass(this.bloom)
@@ -198,6 +249,102 @@ export class Hero3D {
     addEventListener('pointerup', () => (this.drag = null))
     this.resize()
     addEventListener('resize', () => this.resize())
+  }
+
+  // The emblem morph: built once the tiger has loaded and posed.
+  #buildMorph() {
+    const img = this.emblem
+    const meshes = []
+    this.tiger.group.traverse((o) => o.isSkinnedMesh && !o.userData.shell && meshes.push(o))
+    if (!meshes.length) return
+    const src = meshes[0]
+    this.tiger.group.updateMatrixWorld(true)
+    const mobile = innerWidth < 760
+    const N = mobile ? 16000 : 40000
+    const pos = src.geometry.attributes.position
+    const from = new Float32Array(N * 3)
+    const to = new Float32Array(N * 3)
+    const col = new Float32Array(N * 3)
+    const seed = new Float32Array(N)
+    const v = new THREE.Vector3()
+    // The emblem's pixels, as targets.
+    const cw = 220
+    const ch = Math.round((cw * img.naturalHeight) / img.naturalWidth)
+    const cv = document.createElement('canvas')
+    cv.width = cw
+    cv.height = ch
+    const g = cv.getContext('2d', { willReadFrequently: true })
+    g.drawImage(img, 0, 0, cw, ch)
+    const px = g.getImageData(0, 0, cw, ch).data
+    const on = []
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (px[(y * cw + x) * 4 + 3] > 128) on.push([x, y])
+    // Where the shield stands: big and square to the camera, in the open
+    // part of the frame (right of the title; on phones, the upper half).
+    const D = 4.2
+    const vh = 2 * D * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))
+    const vw = vh * this.camera.aspect
+    const fwd = this.camera.getWorldDirection(new THREE.Vector3())
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion)
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion)
+    const H = vh * (this.portrait ? 0.4 : 0.62)
+    const W = (H * cw) / ch
+    const c0 = this.camera.position.clone().addScaledVector(fwd, D).addScaledVector(right, this.portrait ? 0 : vw * 0.2).addScaledVector(up, this.portrait ? vh * 0.12 : 0.02 * vh)
+    for (let i = 0; i < N; i++) {
+      const k = Math.floor(Math.random() * pos.count)
+      v.fromBufferAttribute(pos, k)
+      src.applyBoneTransform(k, v)
+      v.applyMatrix4(src.matrixWorld)
+      from.set([v.x, v.y, v.z], i * 3)
+      const [x, y] = on[Math.floor(Math.random() * on.length)]
+      const ox = (x / cw - 0.5) * W + (Math.random() - 0.5) * (W / cw)
+      const oy = (0.5 - y / ch) * H + (Math.random() - 0.5) * (H / ch)
+      v.copy(c0).addScaledVector(right, ox).addScaledVector(up, oy).addScaledVector(fwd, (Math.random() - 0.5) * 0.02)
+      to.set([v.x, v.y, v.z], i * 3)
+      const o = (y * cw + x) * 4
+      col.set([(px[o] / 255) ** 2.2, (px[o + 1] / 255) ** 2.2, (px[o + 2] / 255) ** 2.2], i * 3)
+      seed[i] = Math.random()
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(from, 3))
+    geo.setAttribute('aTo', new THREE.BufferAttribute(to, 3))
+    geo.setAttribute('aCol', new THREE.BufferAttribute(col, 3))
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1))
+    this.morphU = { uM: { value: 0 }, uTime: { value: 0 }, uFlash: { value: 0 }, uSize: { value: 13 * this.renderer.getPixelRatio() } }
+    this.morph = new THREE.Points(geo, new THREE.ShaderMaterial({ uniforms: this.morphU, vertexShader: MORPH_VERT, fragmentShader: MORPH_FRAG, transparent: true, depthWrite: false }))
+    this.morph.frustumCulled = false
+    this.morph.visible = false
+    this.scene.add(this.morph)
+    this.seq = 0
+  }
+
+  // The opening sequence, once the lights are up: roar (0-1.2 s), burst into
+  // the shield (from 1.2 s, formed by ~2.8 s), hold it, then back into the
+  // tiger (from 6.3 s, or as soon as the visitor scrolls on).
+  #morphStep(dt) {
+    if (!this.emblem) {
+      this.emblem = new Image()
+      this.emblem.src = `${import.meta.env.BASE_URL}brand/ku-emblem.png`
+    }
+    if (this.seqDone || this.intro < 0.95 || !this.tiger.ready || !(this.emblem.complete && this.emblem.naturalWidth)) return
+    if (!this.morph) this.#buildMorph()
+    if (!this.morph) return
+    if (this.seq === 0) this.roar()
+    this.seq += dt
+    const t = this.seq
+    if (this.progress > 0.04) this.morphOut = true
+    const want = t > 1.2 && t < 6.3 && !this.morphOut ? 1 : 0
+    this.mLin = THREE.MathUtils.clamp((this.mLin ?? 0) + Math.sign(want - (this.mLin ?? 0)) * dt / 1.6, 0, 1)
+    if (t < 1.2 && this.morphOut) ((this.seqDone = true), (this.tiger.group.visible = true))
+    const m = ease(this.mLin)
+    // A flash as the shield locks into place.
+    if (m > 0.98 && !this.formed) ((this.formed = true), (this.flashT = 0))
+    this.morphU.uM.value = m
+    this.morphU.uTime.value = t
+    this.morph.visible = m > 0.002
+    // The tiger is gone while its embers make the shield.
+    this.tiger.group.visible = m < 0.03
+    this.morphing = m
+    if (t > 1.3 && this.mLin === 0) ((this.seqDone = true), (this.morph.visible = false), (this.tiger.group.visible = true))
   }
 
   // True when the last press was a drag rather than a click.
@@ -245,7 +392,7 @@ export class Hero3D {
       blast = Math.min(1, t / 0.22) * (1 - ease(THREE.MathUtils.clamp((t - 1.9) / 0.8, 0, 1)))
       if (t > 2.8) this.blastT = -1
     }
-    const held = THREE.MathUtils.smoothstep(p, 0.03, 0.12) * (1 - THREE.MathUtils.smoothstep(p, 0.42, 0.6))
+    const held = THREE.MathUtils.smoothstep(p, 0.0, 0.05) * (1 - THREE.MathUtils.smoothstep(p, 0.12, 0.28))
     const target = Math.max(blast, held)
     this.roarK += (target - this.roarK) * Math.min(1, dt * (target > this.roarK ? 14 : 4))
     const burst = this.blastT >= 0 ? Math.max(0, 1 - this.blastT / 1.6) : 0
@@ -260,20 +407,53 @@ export class Hero3D {
     const k = Math.min(1, dt * 2.5)
     this.mouse.x += (this.pointer.x - this.mouse.x) * k
     this.mouse.y += (this.pointer.y - this.mouse.y) * k
-    const leave = ease(THREE.MathUtils.smoothstep(p, 0.5, 0.95))
-    // Facing: three-quarter toward the camera, turning away to the right as it leaves.
-    const face = (this.portrait ? -0.35 : -0.62) + this.mouse.x * 0.12 + this.dragYaw + leave * 1.9
+    // The charge: after its roar the tiger turns to face us and runs
+    // straight at the camera, gathering into a pounce that fills the frame
+    // as the next chapter is torn in over it.
+    const charge = THREE.MathUtils.smoothstep(p, 0.1, 1)
+    const at0 = new THREE.Vector3(this.portrait ? 0.25 : 0.55, FLOOR, -0.2)
+    const camXZ = this.portrait ? new THREE.Vector3(0.15, 0, 5.5) : new THREE.Vector3(-0.3, 0, 5.8)
+    const toCam = camXZ.clone().sub(at0).setY(0)
+    // A few bounding strides, then it leaps: up off the ground and straight
+    // at the lens, jaws open, until its face fills the frame.
+    const run = toCam.length() - 4.6
+    const leapTo = toCam.length() - 3.6
+    toCam.normalize()
+    // Facing: three-quarter toward the camera at rest, square on as it charges.
+    const rest = (this.portrait ? -0.35 : -0.62) + this.mouse.x * 0.12 + this.dragYaw
+    const turn = THREE.MathUtils.smoothstep(charge, 0, 0.12)
+    let face = rest + (Math.atan2(toCam.x, toCam.z) - rest) * turn
     const dir = new THREE.Vector3(Math.sin(face), 0, Math.cos(face))
-    const at = new THREE.Vector3(this.portrait ? 0.25 : 0.55, FLOOR, -0.2)
-    this.tiger.update(dt, at, dir, 0, this.roarK)
+    const runK = THREE.MathUtils.smoothstep(charge, 0, 0.62)
+    const pounce = THREE.MathUtils.smoothstep(charge, 0.6, 1)
+    const ease2 = runK * run + pounce * (leapTo - run)
+    const at = at0.clone().addScaledVector(toCam, ease2)
+    // The arc of the leap: up fast, still high as it reaches us.
+    at.y += Math.sin(pounce * Math.PI) * 0.4 + pounce * 0.05
+    // Running speed from how fast it actually closes in, never a crawl.
+    const moved = Math.abs(ease2 - (this.lastCharge ?? ease2))
+    this.lastCharge = ease2
+    const rate = moved / Math.max(dt, 1e-3)
+    const speed = rate > 0.2 ? THREE.MathUtils.clamp(Math.max(rate, 7), 0, 18) : 0
+    // A snarl as it closes.
+    // A snarl as it closes, a full roar as it pulls up.
+    const snarl = Math.max(this.roarK * (1 - turn), THREE.MathUtils.smoothstep(charge, 0.55, 0.8) * 0.45 + THREE.MathUtils.smoothstep(charge, 0.82, 0.95) * 0.55)
+    this.tiger.update(dt, at, dir, pounce > 0 ? Math.max(speed, 12) : speed, pounce > 0.05 ? 0.4 : Math.min(snarl, 0.45 + 0.55 * (1 - turn)))
+    // Airborne: chest up at take-off, levelling out as it comes in.
+    this.tiger.group.rotation.x = -Math.sin(pounce * Math.PI) * 0.22 + pounce * 0.12
+    if (pounce > 0.05 && !this.leapRoared) ((this.leapRoared = true), this.onRoar?.())
+    if (pounce < 0.01) this.leapRoared = false
+    this.charge = charge
+    this.#morphStep(dt)
     // The head follows the pointer a touch (undone after the frame).
     const head = this.tiger.gait?.bones?.c_head_00
     const neck = this.tiger.gait?.bones?.c_neck_01
-    const qh = new THREE.Quaternion().setFromEuler(new THREE.Euler(-this.mouse.y * 0.12 * (1 - this.roarK), this.mouse.x * 0.25 * (1 - this.roarK), 0))
+    const look = (1 - this.roarK) * (1 - this.charge)
+    const qh = new THREE.Quaternion().setFromEuler(new THREE.Euler(-this.mouse.y * 0.12 * look, this.mouse.x * 0.25 * look, 0))
     if (head) head.quaternion.multiply(qh)
     if (neck) neck.quaternion.multiply(qh)
 
-    // Camera: low, close on the head and shoulders, breathing; drifts back as we leave.
+    // Camera: low, close on the head and shoulders, breathing.
     const hp = this.#head(new THREE.Vector3())
     const intro = this.intro
     const breath = Math.sin(this.time * 0.5)
@@ -281,24 +461,33 @@ export class Hero3D {
     const cam = camBase.clone()
     cam.x += breath * 0.05 + this.mouse.x * 0.18
     cam.y += Math.sin(this.time * 0.37) * 0.03 + this.mouse.y * 0.08 + this.roarK * -0.08
-    cam.z += (1 - intro) * 2.2 + leave * 2.5 - this.roarK * 0.35
+    cam.z += (1 - intro) * 2.2 - this.roarK * 0.35 * (1 - this.charge)
+    // Rises a little with the leap, to meet its face.
+    cam.y += Math.max(0, hp.y - 1.3) * 0.6 * this.charge
+    // The ground shakes under it as it comes, harder the closer it gets.
+    const quake = this.charge * this.charge * (speed > 0 ? 1 : 0.3)
+    cam.x += (Math.random() - 0.5) * 0.05 * quake
+    cam.y += (Math.random() - 0.5) * 0.05 * quake + Math.abs(Math.sin(this.time * 9)) * 0.02 * quake
     this.camera.position.copy(cam)
     this.lookAt ??= hp.clone()
-    // Frame the head off-centre: right of the title on desktop, high on phones.
-    const want = hp.clone().add(this.portrait ? new THREE.Vector3(0.0, -0.75, 0) : new THREE.Vector3(-1.0, -0.15, 0))
-    this.lookAt.lerp(want, Math.min(1, dt * 3))
+    // Frame the head off-centre: right of the title on desktop, high on
+    // phones; square on its face as it charges.
+    const off = this.portrait ? new THREE.Vector3(0.0, -0.75, 0) : new THREE.Vector3(-1.0, -0.15, 0)
+    const want = hp.clone().addScaledVector(off, 1 - THREE.MathUtils.smoothstep(this.charge, 0.05, 0.4))
+    this.lookAt.lerp(want, Math.min(1, dt * (4 + this.charge * 10)))
     this.camera.lookAt(this.lookAt)
-    this.camera.rotateZ(Math.sin(this.time * 0.29) * 0.004 + (burst > 0 ? (Math.random() - 0.5) * 0.012 * burst : 0))
+    this.camera.rotateZ(Math.sin(this.time * 0.29) * 0.004 + (burst > 0 ? (Math.random() - 0.5) * 0.012 * burst : 0) + (Math.random() - 0.5) * 0.01 * quake)
 
     // Lights come up with the intro; the rim flares with the roar.
     const lit = ease(THREE.MathUtils.clamp(intro, 0, 1))
     this.key.target.position.copy(hp).setY(hp.y * 0.6)
     this.rim.target.position.copy(hp)
     this.rim2.target.position.copy(hp).setY(hp.y * 0.7)
-    this.key.intensity = 22 * lit * (1 - leave * 0.3)
-    this.rim.intensity = (30 + this.roarK * 50 + burst * 70) * lit * (0.4 + 0.6 * this.open)
-    this.rim2.intensity = (12 + this.roarK * 20) * lit * (0.4 + 0.6 * this.open)
-    this.fill.intensity = 0.35 * lit
+    this.key.intensity = 26 * lit
+    this.rim.intensity = (26 + this.roarK * 14 + burst * 20) * lit * (0.4 + 0.6 * this.open)
+    this.rim2.intensity = 10 * lit * (0.4 + 0.6 * this.open)
+    this.fill.intensity = 0.5 * lit
+    this.scene.environmentIntensity = 0.22 * lit
     this.backU.uIntro.value = lit
     this.backU.uGlow.value = this.roarK + burst
     this.fogU.uTime.value = this.time
@@ -307,7 +496,10 @@ export class Hero3D {
     this.emberU.uBlast.value = burst
     this.emberU.uScroll.value = p
     this.finish.uniforms.uTime.value = this.time
-    this.bloom.strength = 0.18 + burst * 0.25
+    let flash = 0
+    if (this.flashT >= 0) ((this.flashT += dt), (flash = Math.exp(-this.flashT * 3)), this.flashT > 2 && (this.flashT = -1))
+    if (this.morphU) this.morphU.uFlash.value = flash
+    this.bloom.strength = 0.18 + burst * 0.25 + (this.morphing ?? 0) * 0.35 + flash * 0.9
 
     this.composer.render()
     if (head) head.quaternion.multiply(qh.invert())

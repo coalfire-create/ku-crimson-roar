@@ -5,6 +5,9 @@ import * as THREE from 'three'
 // NIGHT is the shared dusk uniform (0 day .. 1 night) driven by the flight.
 
 export const NIGHT = { value: 0 }
+// 0 up close .. 1 from afar (the map, the finale): how much the campus
+// halls are picked out from the city around them.
+export const FOCUS = { value: 0 }
 
 // Real aerial photography under everything (ground, roads and rooftops):
 // a wide base layer and a sharp one over the tour. Off until it has loaded.
@@ -58,6 +61,8 @@ export const STYLE = { c: 0, g: 1, m: 2, h: 3, d: 4, t: 5, trim: 6, coping: 7, s
 const buildingChunks = {
   vertexPars: /* glsl */ `
     attribute vec4 aB; // style, seed, base y, top y
+    attribute float aC; // 1 for a 고려대 hall, 0 for the city
+    varying float vC;
     varying vec4 vB;
     varying vec3 vPos;
     varying vec3 vWN;
@@ -66,6 +71,7 @@ const buildingChunks = {
   `,
   vertex: /* glsl */ `
     vB = aB;
+    vC = aC;
     vPos = (modelMatrix * vec4(position, 1.0)).xyz;
     vWN = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
     vUv2 = uv;
@@ -76,6 +82,8 @@ const buildingChunks = {
     uniform sampler2D uStone, uStoneN, uAsh, uAshN, uConc, uConcN, uSlate, uSlateN;
     ${AER_GLSL}
     varying vec4 vB;
+    varying float vC;
+    uniform float uFocus;
     varying vec3 vPos;
     varying vec3 vWN;
     varying vec2 vUv2;
@@ -85,9 +93,11 @@ const buildingChunks = {
       float a = hash(vec3(i, 1.0)), b = hash(vec3(i + vec2(1,0), 1.0)), c = hash(vec3(i + vec2(0,1), 1.0)), d = hash(vec3(i + 1.0, 1.0));
       return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }
     // Photo texture as detail over a tint: the texture over its own average colour.
+    // Painted, not photographed: the stone's texture only whispers through
+    // (a quarter of its contrast), the way an anime background suggests it.
     vec3 detail(sampler2D t, vec2 uv, float k){
       vec3 c = texture2D(t, uv).rgb / max(texture2D(t, uv, 14.0).rgb, vec3(0.02));
-      return mix(vec3(1.0), c, k);
+      return mix(vec3(1.0), c, k * 0.25);
     }
     mat3 cotFrame(vec3 N, vec3 p, vec2 uv){
       vec3 dp1 = dFdx(p), dp2 = dFdy(p);
@@ -106,7 +116,8 @@ const buildingChunks = {
         // KU gothic, rough-faced granite: each hall quarried a little differently.
         g = vec4(3.0 + fract(seed * 3.7) * 0.5, 4.0 + fract(seed * 5.3) * 0.4, 1.35, 2.55); fw = 0.2;
         float k = fract(seed * 7.13);
-        wall = k < 0.4 ? vec3(0.6, 0.57, 0.52) : k < 0.7 ? vec3(0.68, 0.62, 0.52) : k < 0.88 ? vec3(0.47, 0.46, 0.44) : vec3(0.64, 0.6, 0.57);
+        // Warm cream granite, a little different on every hall.
+        wall = k < 0.4 ? vec3(0.74, 0.68, 0.58) : k < 0.7 ? vec3(0.8, 0.72, 0.58) : k < 0.88 ? vec3(0.66, 0.62, 0.56) : vec3(0.76, 0.7, 0.64);
       }
       else if (s < 2.5) { g = vec4(1.5, 4.0, 1.42, 3.0); wall = vec3(0.32, 0.34, 0.36); }   // curtain wall
       else if (s < 3.5) { g = vec4(3.0, 3.8, 2.8, 1.7); wall = vec3(0.8, 0.8, 0.78); }  // hospital ribbon
@@ -126,6 +137,7 @@ const buildingChunks = {
     vec3 nTex = vec3(0.5, 0.5, 1.0);
     vec2 nUv = vec2(0.0);
     vec3 glassRefl = vec3(0.0);
+    vec3 litC = vec3(1.0, 0.74, 0.44);
     vec3 wall;
     if (bStyle > 8.5) {
       // Oak door: vertical boards, darkened with age, and an iron strap or two.
@@ -140,10 +152,15 @@ const buildingChunks = {
       wall *= 0.85 + 0.25 * vnoise(vUv2 * 0.12 + bSeed * 9.0);
       nTex = texture2D(uSlateN, ruv).rgb; nUv = ruv; nStr = 1.0; rough = 0.62;
     } else if (isWall < 0.5) {
-      // Flat roofs and the tops of trims: the real rooftop from the aerial photo.
+      // Flat roofs and the tops of trims: a clean drawn roof (the aerial photo
+      // smeared here, leaning walls and all), membrane panels with seams,
+      // one of a few muted tones per building.
       float n = vnoise(vPos.xz * 0.35 + bSeed * 20.0);
-      wall = mix(vec3(0.42, 0.42, 0.41), vec3(0.52, 0.51, 0.49), n) * (0.9 + 0.1 * bSeed);
-      if (uAerOn > 0.5 && bStyle < 5.5) wall = aerialAt(vPos.xz) * 1.15;
+      vec3 tone = fract(bSeed * 7.3) < 0.5 ? vec3(0.5, 0.52, 0.5) : (fract(bSeed * 7.3) < 0.8 ? vec3(0.44, 0.5, 0.48) : vec3(0.56, 0.52, 0.47));
+      wall = tone * (0.92 + 0.12 * n);
+      vec2 pg = abs(fract(vPos.xz / 3.0) - 0.5);
+      float seam = 1.0 - smoothstep(0.46, 0.49, max(pg.x, pg.y));
+      wall *= 0.86 + 0.14 * seam;
       if (bStyle > 6.5) wall = vec3(0.3, 0.31, 0.32);
     } else {
       float along = vUv2.x, len = vUv2.y;
@@ -176,6 +193,7 @@ const buildingChunks = {
       float H = bTop - bBase;
       wall *= 1.0 - 0.18 * smoothstep(0.6, 0.0, H - hgt) * step(hgt, H + 0.01);
 
+      vec3 wall0 = wall;
       if (bStyle < 5.5) {
         // Windows: whole bays centred on this wall, solid piers at the corners.
         float nB = floor((len - 1.4) / g.x);
@@ -262,7 +280,13 @@ const buildingChunks = {
           rough = mix(0.5, 0.06, winMask);
           metal = mix(0.3, 0.0, winMask);
           nStr = 0.0;
-          lit = winMask * step(0.86 - uNight * 0.5, r) * (1.0 - min(reveal, 1.0) * 0.5);
+          // After dark about a third of the rooms are on, never all alike:
+          // warm lamps, cooler office tubes, some dimmed behind blinds, and
+          // brighter toward the ceiling where the fitting is.
+          float h2 = hash(vec3(bay, fl, 7.0));
+          lit = winMask * step(0.86 - uNight * 0.3, r) * (1.0 - min(reveal, 1.0) * 0.5);
+          lit *= (0.35 + 0.75 * h2) * (0.75 + 0.35 * smoothstep(-hw.y, hw.y, cell.y));
+          litC = mix(vec3(1.0, 0.66, 0.36), vec3(0.92, 0.9, 0.82), step(0.62, hash(vec3(bay, fl, 11.0))));
           // Reflection of the sky: Fresnel-weighted, each pane at a slightly different tilt.
           vec3 V = normalize(vPos - cameraPosition);
           vec3 N = normalize(vWN + vec3(r - 0.5, hash(vec3(bay, fl, 3.0)) - 0.5, 0.0) * 0.05);
@@ -272,9 +296,32 @@ const buildingChunks = {
           float fres = 0.05 + 0.95 * pow(1.0 - clamp(dot(-V, N), 0.0, 1.0), 4.0);
           glassRefl = winMask * skyC * fres * (1.0 - uNight * 0.85) * 1.1;
         }
+        // Far away a window is only a pixel or two: drawn one by one it
+        // shimmers as the view moves. Past that size the facade becomes its
+        // average instead: wall tone with the windows' share of dark glass.
+        float fp = max(fwidth(along), fwidth(hgt));
+        float lod = smoothstep(0.15, 0.45, fp);
+        if (lod > 0.0) {
+          float cov = clamp((g.z * g.w) / (g.x * g.y), 0.0, 0.6) * floorsOk * inBays;
+          vec3 avg = mix(wall0, vec3(0.06, 0.062, 0.07), cov);
+          wall = mix(wall, avg, lod);
+          lit *= 1.0 - lod * 0.6;
+          glassRefl *= 1.0 - lod;
+          winMask = mix(winMask, cov, lod);
+          nStr *= 1.0 - lod;
+        }
       }
     }
     diffuseColor.rgb = wall;
+    // From afar the campus stands out: its halls keep (and warm) their stone,
+    // the city round them falls back to a cool, quiet grey.
+    {
+      float lw = dot(wall, vec3(0.299, 0.587, 0.114));
+      vec3 quiet = vec3(lw) * vec3(0.8, 0.84, 0.92) * 0.85;
+      vec3 warm = wall * vec3(1.12, 1.05, 0.96) + vec3(0.03, 0.022, 0.015);
+      diffuseColor.rgb = mix(wall, mix(quiet, warm, vC), uFocus);
+      lit *= mix(1.0, vC, uFocus * 0.8);
+    }
   `,
   roughness: /* glsl */ `
     roughnessFactor = rough;
@@ -286,13 +333,13 @@ const buildingChunks = {
     if (nStr > 0.0) {
       mat3 tbn = cotFrame(normal, -vViewPosition, nUv);
       vec3 mapN = nTex * 2.0 - 1.0;
-      mapN.xy *= nStr;
+      mapN.xy *= nStr * 0.35;
       normal = normalize(tbn * mapN);
     }
   `,
   emissive: /* glsl */ `
     totalEmissiveRadiance += glassRefl;
-    totalEmissiveRadiance += vec3(1.0, 0.74, 0.44) * lit * (0.12 + uNight * 3.0);
+    totalEmissiveRadiance += litC * lit * (0.12 + uNight * 1.7);
   `,
 }
 
@@ -300,6 +347,7 @@ export function buildingMaterial() {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 })
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uNight = NIGHT
+    sh.uniforms.uFocus = FOCUS
     Object.assign(sh.uniforms, AER, WALLTEX)
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\n' + buildingChunks.vertexPars)
@@ -312,7 +360,7 @@ export function buildingMaterial() {
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + buildingChunks.normal)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + buildingChunks.emissive)
   }
-  mat.customProgramCacheKey = () => 'ku-building-2'
+  mat.customProgramCacheKey = () => 'ku-building-4'
   return mat
 }
 
@@ -416,10 +464,11 @@ export function slopeUV(geo) {
 }
 
 // Per-vertex building attribute: style, seed, base y, top y.
-export function tagB(geo, style, seed, base, top) {
+export function tagB(geo, style, seed, base, top, campus = 1) {
   const n = geo.attributes.position.count
   const a = new Float32Array(n * 4)
   for (let k = 0; k < n; k++) a.set([style, seed, base, top], k * 4)
   geo.setAttribute('aB', new THREE.BufferAttribute(a, 4))
+  geo.setAttribute('aC', new THREE.BufferAttribute(new Float32Array(n).fill(campus), 1))
   return geo
 }

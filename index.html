@@ -32,12 +32,20 @@
     </div>
 
     <div class="progress-line" id="progressLine"></div>
+    <!-- Performance video, played from YouTube on request. -->
+    <div class="vmodal" id="vmodal" hidden>
+      <div class="vmodal__box">
+        <button class="vmodal__close" id="vclose" type="button" aria-label="닫기">×</button>
+        <iframe id="vframe" title="입실렌티 무대 영상" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+      </div>
+    </div>
     <header class="nav">
-      <a href="#hero" class="nav__logo" aria-label="고려대학교">Korea<sup>高麗</sup></a>
+      <a href="#hero" class="nav__logo" aria-label="고려대학교"><img class="nav__emblem" src="/brand/ku-emblem.png" alt="" />Korea<sup>高麗</sup></a>
       <nav class="nav__links">
         <a href="#fortress">본관</a>
         <a href="#pride">입실렌티</a>
         <a href="#frontier">캠퍼스</a>
+        <a href="#fields">선도 학문</a>
         <a href="#gate">입학</a>
       </nav>
       <div class="nav__right">
@@ -78,11 +86,12 @@
           <div class="fortress__head">
             <span class="kicker">01 — THE FORTRESS OF INTELLECT</span>
             <h2 class="h2">지성의 요새,<br />본관.</h2>
-            <p class="body">1934년 안암 언덕에 세워진 화강암 고딕 건물. 스크롤하면 요새가 부품으로 흩어졌다가 다시 하나가 됩니다.</p>
+            <p class="body">1934년 안암 언덕에 세워진 화강암 고딕 건물. 스크롤하면 본관의 봄, 여름, 가을, 겨울이 차례로 지나갑니다.</p>
           </div>
+          <div class="season" id="season"><small></small><b></b><span></span></div>
           <ol class="timeline" id="timeline"></ol>
           <div class="part-tag" id="partTag" hidden><b></b><span></span><p></p></div>
-          <p class="hint hint--fortress"><span class="hint__dot"></span>흩어진 부품에 커서를 올려 보세요</p>
+          <p class="hint hint--fortress"><span class="hint__dot"></span>건물 각 부분에 커서를 올려 보세요</p>
         </div>
       </section>
 
@@ -94,6 +103,7 @@
           <div class="pride__copy">
             <span class="kicker">02 — THE CRIMSON PRIDE</span>
             <h2 class="h2">붉은 함성,<br />입실렌티.</h2>
+            <p class="body pride__lede">매년 5월, 녹지운동장을 가득 메운 붉은 물결. 스크롤하면 올해 무대에 오른 아티스트가 차례로 등장합니다.</p>
             <p class="hint"><span class="hint__dot"></span><span id="prideHint">스페이스바나 클릭으로 심장을 뛰게 하세요</span></p>
           </div>
           <div class="meter">
@@ -102,6 +112,25 @@
             <span class="meter__beats"><b id="beatCount">0</b> BEATS</span>
           </div>
           <div class="ipselenti" id="ipselenti" aria-hidden="true">IPSELENTI</div>
+          <!-- The night's stage: spotlights, the act now on, the whole lineup. -->
+          <div class="beams" id="beams" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="act" id="act" aria-live="polite">
+            <small class="act__no" id="actNo"></small>
+            <b class="act__name" id="actName"></b>
+            <span class="act__en" id="actEn"></span>
+            <span class="act__sub" id="actSub"></span>
+          </div>
+          <!-- The stage screen: that night's footage of the act on now. -->
+          <button class="stage-screen" id="stageScreen" type="button" hidden>
+            <img id="stageThumb" alt="" />
+            <span class="stage-screen__play">▶ 그날의 무대 영상 보기</span>
+            <span class="stage-screen__live">LIVE · IPSELENTI 2026</span>
+          </button>
+          <aside class="lineup">
+            <span class="lineup__title" id="lineupTitle"></span>
+            <ol class="lineup__list" id="lineupList"></ol>
+            <p class="lineup__note" id="lineupNote"></p>
+          </aside>
           <button class="mute" id="mute" type="button"><i></i>SOUND ON</button>
         </div>
       </section>
@@ -113,15 +142,36 @@
           <canvas class="scene__canvas speed-lines" id="speedLines" aria-hidden="true"></canvas>
           <div class="locks" id="locks"></div>
           <div class="flight__head">
-            <span class="kicker">03 — KU FUTURE FRONTIER · 호랑이길</span>
-            <h2 class="h2">정문에서 자연계까지,<br />호랑이의 발자국을 따라.</h2>
+            <span class="kicker">03 — 안암캠퍼스 · THE FILM</span>
+            <h2 class="h2">정문에서 자연계까지,<br />한 편의 영화로 보는 캠퍼스.</h2>
+            <p class="body flight__lede">번호는 영화 속 장면이에요. 스크롤하면 1번부터 한 편의 애니메이션처럼 캠퍼스가 펼쳐집니다.</p>
           </div>
           <div class="flight__hud">
             <div><span class="hud__label">SPEED</span><span class="hud__big" id="speed">0</span><span class="hud__unit">km/h</span></div>
             <div><span class="hud__label">TARGET</span><span class="hud__mid" id="lockName">—</span></div>
           </div>
-          <p class="hint hint--flight"><span class="hint__dot"></span>화면에 커서를 올리면 가속 · 타겟을 클릭해 보세요</p>
+          <!-- Passing a landmark: its story, as a lower third. -->
+          <div class="intro" id="intro" aria-live="polite">
+            <div class="intro__top">
+              <span class="intro__scene" id="introScene"></span>
+              <ol class="intro__dots" id="introDots"></ol>
+            </div>
+            <span class="intro__kind" id="introKind"></span>
+            <h3 class="intro__name" id="introName"></h3>
+            <span class="intro__en" id="introEn"></span>
+            <p class="intro__body" id="introBody"></p>
+            <dl class="intro__rows" id="introRows"></dl>
+            <ul class="intro__facts" id="introFacts"></ul>
+            <div class="intro__foot">
+              <button class="intro__more" id="introMore" type="button">자세히 보기 →</button>
+              <span class="intro__bar"><i id="introBar"></i></span>
+            </div>
+          </div>
+          <p class="hint hint--flight"><span class="hint__dot"></span>스크롤하면 다음 건물로 · 이름표를 클릭해 자세히 보기</p>
           <button class="dir-btn" id="dirBtn" type="button">건물 전체 보기 <b id="dirCount"></b></button>
+          <!-- Film: letterbox bars and the dip to black between shots. -->
+          <div class="film-bars" id="filmBars" aria-hidden="true"><i></i><i></i></div>
+          <div class="film-cut" id="filmCut" aria-hidden="true"></div>
           <button class="dir-back" id="dirBack" type="button" hidden>← 투어로 돌아가기</button>
           <aside class="dir" id="dir" hidden>
             <div class="dir__head">
@@ -149,16 +199,34 @@
         </div>
       </section>
 
+      <!-- 04 FRONTIERS: the fields only 고려대 leads, in 3D -->
+      <section class="scene fields" id="fields">
+        <div class="scene__sticky">
+          <canvas class="scene__canvas" id="cvFields"></canvas>
+          <div class="fields__copy" id="fieldsCopy">
+            <span class="kicker">04 — KU ONLY · 독보적 선도 학문</span>
+            <span class="fields__no" id="fieldNo"></span>
+            <span class="fields__kind" id="fieldKind"></span>
+            <h2 class="fields__name" id="fieldName"></h2>
+            <span class="fields__en" id="fieldEn"></span>
+            <p class="fields__head" id="fieldHead"></p>
+            <p class="fields__body" id="fieldBody"></p>
+            <ul class="fields__facts" id="fieldFacts"></ul>
+          </div>
+          <ol class="fields__steps" id="fieldSteps"></ol>
+        </div>
+      </section>
+
       <!-- 05 ENTER THE ANAM: the stone gate opens -->
       <section class="scene gate" id="gate">
         <div class="scene__sticky">
-          <canvas class="scene__canvas" id="cvDawn"></canvas>
           <canvas class="scene__canvas" id="cvGate"></canvas>
           <div class="gate__top">
-            <span class="eyebrow">04 — ENTER THE ANAM</span>
+            <span class="eyebrow">05 — ENTER THE ANAM</span>
             <span class="eyebrow">KOREA UNIVERSITY</span>
           </div>
           <div class="gate__body">
+            <img class="gate__emblem gate-extra" src="/brand/ku-emblem.png" alt="고려대학교 상징" />
             <h2 class="gate__title">Enter<br /><em>the Anam.</em></h2>
             <div class="gate__row">
               <p class="gate__ko">자유, 정의, 진리.<br />이제 당신의 포효가 시작될 차례입니다.</p>

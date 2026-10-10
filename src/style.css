@@ -351,7 +351,8 @@ button {
 
 /* ---------- hero: the tiger wakes ---------- */
 .hero {
-  height: 260vh;
+  /* Just the tear-in distance: the opening plays as one beat (see main.js). */
+  height: 200vh;
 }
 .hero .scene__sticky {
   background: #0d0d11;
@@ -459,7 +460,7 @@ button {
 
 /* ---------- campus flight ---------- */
 .flight {
-  height: 1000vh;
+  height: 640vh;
 }
 .flight__head {
   position: absolute;
@@ -472,7 +473,7 @@ button {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(10, 6, 8, 0.5), transparent 32%), linear-gradient(to top, rgba(10, 6, 8, 0.45), transparent 22%);
+  background: linear-gradient(to bottom, rgba(10, 6, 8, 0.28), transparent 22%), linear-gradient(to top, rgba(10, 6, 8, 0.3), transparent 18%);
   pointer-events: none;
 }
 .flight__hud,
@@ -552,6 +553,84 @@ button {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+/* Landmark lower third: rises in as the tiger passes, sinks away after. */
+.intro {
+  position: absolute;
+  left: var(--gutter);
+  bottom: 96px;
+  z-index: 3;
+  width: min(440px, calc(100% - 32px));
+  padding: 18px 22px 20px;
+  border-left: 3px solid var(--sky);
+  border-radius: 0 14px 14px 0;
+  background: linear-gradient(100deg, rgba(10, 6, 8, 0.78), rgba(10, 6, 8, 0.35));
+  backdrop-filter: blur(14px);
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.6s var(--ease), transform 0.8s var(--ease);
+  pointer-events: none;
+}
+.intro.is-on {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.intro__more {
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sky);
+  font: 600 13px var(--sans);
+  cursor: pointer;
+}
+.intro__more:hover {
+  text-decoration: underline;
+}
+/* A showcase, not a game: no reticles or speed readout over the halls. */
+.lock__box,
+.flight__hud > div:first-child {
+  display: none;
+}
+.intro__kind {
+  font-family: var(--grotesk);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  color: var(--sky);
+}
+.intro__name {
+  margin-top: 6px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+.intro__en {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--muted);
+}
+.intro__body {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(246, 241, 236, 0.86);
+}
+@media (max-width: 760px) {
+  .intro {
+    bottom: 92px;
+    padding: 14px 16px 16px;
+  }
+  .intro__name {
+    font-size: 22px;
+  }
+  .intro__body {
+    font-size: 13px;
+  }
 }
 .lock {
   position: absolute;
@@ -1131,7 +1210,7 @@ button.pill:not([class*='pill--']) {
 
 /* ---------- pride ---------- */
 .pride {
-  height: 280vh;
+  height: 420vh;
 }
 .pride__copy {
   position: absolute;
@@ -1434,4 +1513,666 @@ button.pill:not([class*='pill--']) {
 .gate .eyebrow,
 .gate .footer {
   transition: color 0.8s, text-shadow 0.8s;
+}
+
+/* Fortress: the season, large on the right. */
+.season {
+  position: absolute;
+  top: 120px;
+  right: var(--gutter);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.season small {
+  font-family: var(--grotesk);
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: rgba(255, 255, 255, 0.8);
+}
+.season b {
+  margin-top: 4px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(64px, 9vw, 132px);
+  line-height: 1;
+  color: #fff;
+}
+.season span {
+  margin-top: 8px;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.9);
+}
+@media (max-width: 760px) {
+  .season {
+    top: auto;
+    bottom: 170px;
+  }
+  .season b {
+    font-size: 56px;
+  }
+  .season span {
+    font-size: 13px;
+  }
+}
+/* Daytime seasons put a bright sky behind the words: a soft shade keeps them legible. */
+.fortress .scene__sticky::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(100deg, rgba(10, 6, 8, 0.55), transparent 42%), linear-gradient(to top, rgba(10, 6, 8, 0.6), transparent 26%), linear-gradient(260deg, rgba(10, 6, 8, 0.35), transparent 30%);
+  pointer-events: none;
+}
+.fortress__head,
+.timeline {
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- pride: the stage ---------- */
+.pride__lede {
+  max-width: 340px;
+  margin-top: 14px;
+}
+/* Spotlights from the stage floor, sweeping; brighter as the crowd's energy rises. */
+.beams {
+  --e: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+.beams i {
+  position: absolute;
+  bottom: -10%;
+  width: 22vw;
+  height: 130%;
+  transform-origin: 50% 100%;
+  background: linear-gradient(to top, var(--c), transparent 85%);
+  clip-path: polygon(46% 100%, 54% 100%, 100% 0, 0 0);
+  opacity: calc(0.18 + var(--e) * 0.5);
+  filter: blur(6px);
+  animation: sweep 7s ease-in-out infinite alternate;
+}
+.beams i:nth-child(1) { left: 2%; --c: rgba(255, 60, 40, 0.75); animation-duration: 6.2s; }
+.beams i:nth-child(2) { left: 22%; --c: rgba(255, 200, 140, 0.6); animation-duration: 8.4s; animation-delay: -2s; }
+.beams i:nth-child(3) { left: 40%; --c: rgba(255, 255, 255, 0.5); animation-duration: 5.6s; animation-delay: -4s; }
+.beams i:nth-child(4) { left: 58%; --c: rgba(255, 200, 140, 0.6); animation-duration: 7.8s; animation-delay: -1s; }
+.beams i:nth-child(5) { left: 76%; --c: rgba(255, 60, 40, 0.75); animation-duration: 6.8s; animation-delay: -3s; }
+@keyframes sweep {
+  from { transform: rotate(-24deg); }
+  to { transform: rotate(24deg); }
+}
+/* The act on stage: a big name over the crowd, like the screen behind a festival stage. */
+.act {
+  position: absolute;
+  left: 50%;
+  bottom: 13vh;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(92vw, 1000px);
+  text-align: center;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.6s var(--ease);
+  pointer-events: none;
+}
+.act.is-on {
+  opacity: 1;
+}
+.act__no {
+  font-family: var(--grotesk);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  color: #ffc04a;
+}
+.act__name {
+  margin-top: 6px;
+  font-size: clamp(54px, 9vw, 140px);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 40px rgba(255, 70, 30, 0.75), 0 6px 40px rgba(0, 0, 0, 0.6);
+}
+.act.is-head .act__name {
+  background: linear-gradient(180deg, #fff 30%, #ffc04a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 0 30px rgba(255, 120, 40, 0.8));
+}
+.act__en {
+  margin-top: 10px;
+  font-family: var(--display);
+  font-size: clamp(14px, 1.6vw, 20px);
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  color: rgba(255, 255, 255, 0.85);
+}
+.act__sub {
+  margin-top: 8px;
+  font-size: 14px;
+  color: rgba(255, 220, 200, 0.85);
+}
+/* The full lineup on the right; acts light up as they take the stage. */
+.lineup {
+  position: absolute;
+  top: 110px;
+  right: var(--gutter);
+  z-index: 2;
+  width: 220px;
+  pointer-events: none;
+}
+.lineup__title {
+  font-family: var(--grotesk);
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  color: var(--sky);
+}
+.lineup__list {
+  margin-top: 12px;
+  list-style: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+.lineup__list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.32);
+  transition: color 0.5s, transform 0.5s var(--ease);
+}
+.lineup__list li b {
+  font-size: 14px;
+  font-weight: 700;
+}
+.lineup__list li small {
+  font-family: var(--grotesk);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+}
+.lineup__list li.is-past {
+  color: rgba(255, 255, 255, 0.62);
+}
+.lineup__list li.is-on {
+  color: #fff;
+  transform: translateX(-8px);
+}
+.lineup__list li.is-on b::before {
+  content: '● ';
+  color: var(--sky);
+}
+.lineup__note {
+  margin-top: 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+@media (max-width: 760px) {
+  .lineup {
+    display: none;
+  }
+  .act {
+    bottom: 150px;
+  }
+  .beams i {
+    width: 40vw;
+  }
+}
+
+/* Campus map: numbered pins over the stops, a lede under the title. */
+.flight__lede {
+  max-width: 360px;
+  margin-top: 12px;
+}
+.pin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px 5px 5px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #1a1012;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  font: 700 13px var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  visibility: hidden;
+}
+.pin b {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #b5122a;
+  color: #fff;
+  font: 700 11px var(--grotesk);
+}
+.pin::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  border: 7px solid transparent;
+  border-bottom: 0;
+  border-top-color: #fff;
+  transform: translateX(-50%);
+}
+.pin:hover {
+  background: #fff3f0;
+}
+
+/* ---------- fields: KU-only frontiers ---------- */
+.fields {
+  height: 420vh;
+}
+.fields .scene__sticky {
+  background: #05060c;
+}
+.fields .scene__sticky::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(90deg, rgba(5, 6, 12, 0.85), rgba(5, 6, 12, 0.35) 40%, transparent 60%);
+  pointer-events: none;
+}
+.fields__copy {
+  --accent: #5ff0ff;
+  position: absolute;
+  top: 50%;
+  left: var(--gutter);
+  z-index: 2;
+  width: min(440px, 44vw);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.fields__copy[data-key='chip'] { --accent: #ffc56a; }
+.fields__copy[data-key='kubs'] { --accent: #ff4a63; }
+.fields__no {
+  display: block;
+  margin-top: 26px;
+  font-family: var(--grotesk);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  color: var(--accent);
+}
+.fields__kind {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+}
+.fields__name {
+  margin-top: 6px;
+  font-size: clamp(48px, 6.4vw, 96px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 40px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.fields__en {
+  display: block;
+  margin-top: 8px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 20px;
+  color: var(--accent);
+}
+.fields__head {
+  margin-top: 22px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.fields__body {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.75;
+  color: rgba(246, 241, 236, 0.78);
+}
+.fields__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+  list-style: none;
+}
+.fields__facts li {
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 12.5px;
+  color: #fff;
+}
+.fields__steps {
+  position: absolute;
+  right: var(--gutter);
+  bottom: 40px;
+  z-index: 2;
+  display: flex;
+  gap: 22px;
+  list-style: none;
+  pointer-events: none;
+}
+.fields__steps li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding-top: 10px;
+  border-top: 2px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 13px;
+  transition: color 0.5s, border-color 0.5s;
+}
+.fields__steps li b {
+  font-family: var(--grotesk);
+  font-size: 11px;
+}
+.fields__steps li.is-on {
+  border-color: #fff;
+  color: #fff;
+}
+@media (max-width: 760px) {
+  .fields__copy {
+    top: auto;
+    bottom: 110px;
+    width: calc(100% - 32px);
+    transform: none;
+  }
+  .fields__name { font-size: 44px; }
+  .fields__body { display: none; }
+  .fields__steps { left: var(--gutter); right: auto; bottom: 28px; gap: 14px; }
+}
+
+/* ---------- campus film ---------- */
+.film-bars i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 0;
+  background: #07050a;
+  transition: height 0.9s var(--ease);
+  pointer-events: none;
+}
+.film-bars i:first-child { top: 0; }
+.film-bars i:last-child { bottom: 0; }
+.film-bars.is-on i { height: 9vh; }
+.film-cut {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: #07050a;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Captions sit just above the lower letterbox bar, like subtitles. */
+.flight .intro {
+  bottom: calc(9vh + 22px);
+}
+
+/* The film needs no flight readout. */
+.flight__hud {
+  display: none;
+}
+
+/* Stage screen: the act's real footage, framed like the LED wall by the stage. */
+.stage-screen {
+  position: absolute;
+  left: var(--gutter);
+  top: 420px;
+  z-index: 3;
+  width: min(400px, 30vw);
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 2px solid rgba(255, 140, 110, 0.6);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 50px rgba(255, 40, 20, 0.45), 0 20px 50px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+.stage-screen[hidden] { display: none; }
+.stage-screen img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(1.15) contrast(1.05);
+  transition: transform 0.6s var(--ease);
+}
+.stage-screen:hover img { transform: scale(1.05); }
+.stage-screen__play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(181, 18, 42, 0.9);
+  color: #fff;
+  font: 700 13px var(--sans);
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+.stage-screen__live {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ff6a5a;
+  font: 600 10px var(--grotesk);
+  letter-spacing: 0.12em;
+}
+.vmodal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 3, 6, 0.86);
+  backdrop-filter: blur(8px);
+}
+.vmodal[hidden] { display: none; }
+.vmodal__box {
+  position: relative;
+  width: min(1100px, 92vw);
+  aspect-ratio: 16 / 9;
+}
+.vmodal__box iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 12px;
+}
+.vmodal__close {
+  position: absolute;
+  right: -6px;
+  top: -44px;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-size: 34px;
+  cursor: pointer;
+}
+@media (max-width: 760px) {
+  /* Phones: a small thumbnail tucked in the corner, clear of the performers. */
+  .stage-screen { top: auto; bottom: 120px; left: var(--gutter); width: 40vw; border-radius: 10px; }
+  .stage-screen__play { font-size: 11px; padding: 6px 10px; }
+}
+
+/* The university's shield, beside the wordmark and over the finale's words. */
+.nav__emblem {
+  height: 30px;
+  width: auto;
+  margin-right: 8px;
+  vertical-align: middle;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+}
+.nav__logo {
+  display: inline-flex;
+  align-items: center;
+}
+.gate__emblem {
+  display: block;
+  width: clamp(54px, 6vw, 80px);
+  height: auto;
+  margin-bottom: 18px;
+  filter: drop-shadow(0 0 24px rgba(255, 120, 60, 0.55));
+}
+
+/* ---------- film: the building card ---------- */
+.flight .intro {
+  width: min(470px, calc(100% - 32px));
+  padding: 22px 26px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 3px solid var(--sky);
+  border-radius: 0 18px 18px 0;
+  background: linear-gradient(120deg, rgba(14, 8, 10, 0.86), rgba(14, 8, 10, 0.55));
+  backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+.intro__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.intro__scene {
+  font-family: var(--grotesk);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  color: var(--sky);
+}
+.intro__dots {
+  display: flex;
+  gap: 6px;
+  list-style: none;
+}
+.intro__dots li {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 0.4s, width 0.4s;
+}
+.intro__dots li.is-past { background: rgba(255, 255, 255, 0.5); }
+.intro__dots li.is-on { width: 28px; background: var(--sky); }
+.flight .intro__kind {
+  display: block;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.65);
+}
+.flight .intro__name {
+  margin-top: 4px;
+  font-size: clamp(30px, 3.2vw, 44px);
+  letter-spacing: -0.04em;
+}
+.flight .intro__en {
+  font-size: 18px;
+}
+.flight .intro__body {
+  margin-top: 12px;
+  font-size: 14.5px;
+  line-height: 1.75;
+}
+.intro__rows {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 4px 22px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.intro__rows:empty { display: none; }
+.intro__rows dt {
+  font-family: var(--grotesk);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.5);
+}
+.intro__rows dd {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+.intro__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  list-style: none;
+}
+.intro__facts:empty { display: none; }
+.intro__facts li {
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 110, 90, 0.4);
+  border-radius: 999px;
+  background: rgba(255, 90, 60, 0.1);
+  font-size: 12px;
+  color: rgba(255, 240, 235, 0.92);
+}
+.intro__foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+}
+.intro__foot .intro__more {
+  margin-top: 0;
+  white-space: nowrap;
+}
+.intro__bar {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.intro__bar i {
+  display: block;
+  height: 100%;
+  background: var(--sky);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+@media (max-width: 760px) {
+  /* Phones: a compact card low in the frame, so the building keeps the screen. */
+  .intro__rows,
+  .intro__facts { display: none; }
+  .flight .intro { padding: 12px 16px 12px; bottom: 76px; }
+  .flight .intro__name { font-size: 22px; }
+  .flight .intro__en { font-size: 13px; }
+  .flight .intro__body {
+    font-size: 12.5px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
 }

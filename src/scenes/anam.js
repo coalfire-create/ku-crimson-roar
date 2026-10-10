@@ -5,14 +5,24 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js'
 import DATA from '../data/campus.json'
 import { RunTiger } from './runTiger.js'
 import WORLD from '../data/world.json'
 // The main gate is a low stone arch, not a 16 m block.
-for (const b of DATA.buildings) if (b.n === '고려대학교 정문') b.h = Math.min(b.h, 7)
+// The main gate is drawn as its own stone gateway (below), not a block.
+for (const b of DATA.buildings) if (b.n === '고려대학교 정문') ((b.h = Math.min(b.h, 7)), (b.gate = true), (b.flat = true))
+// 중앙광장 is a lawn over the underground library, but OSM maps it as a 16 m
+// building: keep it as open ground (no walls, nothing for the tour to dodge).
+{
+  const ring = DATA.landmarks.plazaRing
+  for (const b of DATA.buildings) if (b.p.length === ring.length && b.p[0][0] === ring[0][0] && b.p[0][1] === ring[0][1]) b.flat = true
+}
 import { loadAerial } from './aerial.js'
+import { AnimeSky, DepthRenderPass, InkPass, Students } from './anime.js'
 import { buildTrees } from './trees.js'
-import { AER, AER_GLSL, NIGHT, buildingMaterial, STYLE as BST, offsetPoly, wallUV, slopeUV, tagB } from './materials.js'
+import { AER, AER_GLSL, NIGHT, FOCUS, buildingMaterial, STYLE as BST, offsetPoly, wallUV, slopeUV, tagB } from './materials.js'
 
 // A flight over the whole Anam campus of Korea University, built only from
 // free open data: OpenStreetMap footprints, land use and trees (© OSM
@@ -36,17 +46,77 @@ const T = WORLD.terrain
 const X1 = T.x0 + (T.w - 1) * T.step
 const Z1 = T.z0 + (T.h - 1) * T.step
 const MOBILE = innerWidth < 760
-// Scroll position (0..1 of the tour) where the tiger stops roaring and runs.
-const TIGER_RUN = 0.03
-const TOUR_END = 0.9 // the tiger reaches the end of the road; then the view rises
-const CHASE = { back: 16, up: 8, ahead: 38, look: 0.5, wall: 7.5 }
+// Scroll layout (0..1 of the section), cut like a short animated film:
+// first the whole campus from above, drawn like an illustrated map with a
+// numbered pin on every stop; then one shot per landmark, each its own
+// camera move (a crane up from the lawn, a slow push in, an arc round the
+// hall), joined by quick dips to black; then the camera rises over the
+// whole campus at dusk. The tiger is the film's mascot, waiting in shot.
+const SHOWS_START = 0.1
+// Camera move per shot, in landmark order.
+const MOVES = ['crane', 'orbit', 'dolly', 'orbit', 'crane', 'dolly', 'orbit', 'crane']
+const TOUR_END = 0.9
 const SUN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 11), THREE.MathUtils.degToRad(235))
 // 0 = golden hour, 1 = blue hour with the windows lit; the tour runs from one
 // to the other.
+// Day to night: at full night the "sun" is a cool moon, the sky light deep
+// blue, the haze a dark indigo that lamps and windows glow against.
 const DUSK = {
-  sun: [new THREE.Color('#ffc98f'), new THREE.Color('#ff7a45')],
-  sky: [new THREE.Color('#d8b9a0'), new THREE.Color('#3a3260')],
-  fog: [new THREE.Color('#b9a08e'), new THREE.Color('#2e2748')],
+  sun: [new THREE.Color('#ffc98f'), new THREE.Color('#9fb6ff')],
+  sky: [new THREE.Color('#aac6ea'), new THREE.Color('#40528f')],
+  fog: [new THREE.Color('#bcd5e8'), new THREE.Color('#141a38')],
+}
+
+// A painterly grade, like a frame from an animated film: richer colour,
+// warm light and gently lifted, cool shadows, a soft vignette. Runs on the
+// linear image before tone mapping.
+// The storybook finish, like a page from an illustrated fairy tale: a
+// miniature's focus (the top and bottom of the frame drift softly out of
+// focus, the hall in the middle stays sharp), a dreamy glow spreading from
+// the bright parts, pastel lavender shadows and warm golden light, and a
+// soft warm vignette. uStory fades it in for the building shots.
+const GRADE = {
+  uniforms: { tDiffuse: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uStory: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 uRes; uniform float uStory; varying vec2 vUv;
+    vec3 blur(vec2 uv, float r){
+      vec3 acc = vec3(0.0);
+      float w = 0.0;
+      for (int i = -3; i <= 3; i++)
+        for (int j = -3; j <= 3; j++) {
+          vec2 o = vec2(float(i), float(j));
+          float k = exp(-dot(o, o) / 8.0);
+          acc += texture2D(tDiffuse, uv + o * r / uRes).rgb * k;
+          w += k;
+        }
+      return acc / w;
+    }
+    void main(){
+      // Clamped to display range first: an over-bright sun would otherwise
+      // turn the screen-blended glow into a rainbow ring.
+      vec3 c = clamp(texture2D(tDiffuse, vUv).rgb, 0.0, 1.0);
+      // Miniature focus: sharp in a band through the middle.
+      float tilt = smoothstep(0.16, 0.48, abs(vUv.y - 0.52)) * uStory;
+      vec3 soft = clamp(blur(vUv, 1.0 + tilt * 3.2), 0.0, 1.0);
+      c = mix(c, soft, tilt);
+      // Dreamy glow from the highlights.
+      vec3 halo = clamp(blur(vUv, 5.0), 0.0, 1.0);
+      float hl = dot(halo, vec3(0.2126, 0.7152, 0.0722));
+      c = mix(c, 1.0 - (1.0 - c) * (1.0 - halo * smoothstep(0.35, 0.9, hl) * 0.55), uStory);
+      float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      c = max(mix(vec3(l), c, 1.05), 0.0);
+      float hi = smoothstep(0.05, 0.6, l);
+      c *= mix(vec3(0.94, 0.98, 1.08), vec3(1.07, 1.0, 0.9), hi);
+      c += vec3(0.006, 0.008, 0.014) * (1.0 - hi);
+      // Storybook palette: lavender in the shadows, honey in the light.
+      vec3 tale = c * mix(vec3(0.96, 0.92, 1.06), vec3(1.06, 1.0, 0.88), hi) + vec3(0.035, 0.025, 0.05) * (1.0 - hi);
+      c = mix(c, tale, uStory);
+      vec2 q = vUv - 0.5;
+      float vig = smoothstep(0.25, 0.75, dot(q, q) * 2.2);
+      c *= 1.0 - mix(0.35, 0.28, uStory) * vig;
+      c += vec3(0.05, 0.025, 0.0) * vig * uStory;
+      gl_FragColor = vec4(c, 1.0);
+    }`,
 }
 
 // Wall / roof look by style: s = style index, per-building seed, base and top.
@@ -205,19 +275,47 @@ function roadTour(tour, paths, cost = null) {
   return smooth
 }
 
+// Nudge a resampled route out of every footprint until each point stands at
+// least `min` metres from a wall, re-smoothing between passes so the pushes
+// never leave a kink. F is the wall field (dist / grad).
+function keepOffWalls(pts, F, min) {
+  for (let pass = 0; pass < 6; pass++) {
+    let moved = false
+    for (const p of pts) {
+      for (let it = 0; it < 12; it++) {
+        const d = F.dist(p[0], p[1])
+        if (d >= min) break
+        const [gx, gz] = F.grad(p[0], p[1])
+        p[0] += gx * (min - d + 0.25)
+        p[1] += gz * (min - d + 0.25)
+        moved = true
+      }
+    }
+    if (!moved) break
+    const copy = pts.map((p) => [...p])
+    for (let i = 1; i < pts.length - 1; i++) {
+      pts[i][0] = (copy[i - 1][0] + 2 * copy[i][0] + copy[i + 1][0]) / 4
+      pts[i][1] = (copy[i - 1][1] + 2 * copy[i][1] + copy[i + 1][1]) / 4
+    }
+  }
+  return pts
+}
+
 export class AnamFlight {
   constructor(canvas) {
     this.canvas = canvas
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.25 : 1.6))
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 0.6
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.25 : 1.5))
+    // Neutral tone mapping keeps colours clean and saturated, as painted.
+    this.renderer.toneMapping = THREE.NeutralToneMapping
+    // Bright and airy, like a painted anime background.
+    this.renderer.toneMappingExposure = 0.95
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.scene = new THREE.Scene()
-    this.camera = new THREE.PerspectiveCamera(58, 1, 2, 6000)
+    // Near enough for close shots on the lawn, far enough for the whole city.
+    this.camera = new THREE.PerspectiveCamera(58, 1, 0.3, 4000)
     this.progress = 0
-    this.boost = 0
     this.speed = 0 // camera speed, m/s
     this.rush = 0 // 0..1, how fast it feels
     this.sunDir = SUN.clone()
@@ -230,48 +328,41 @@ export class AnamFlight {
     this.#buildGround()
     this.#buildBuildings()
     this.#buildRoute()
-    // No crowns over the tiger's road: the low camera would fly through them.
-    {
-      const C = 4
-      const cells = new Map()
-      const L = this.route.getLength()
-      for (let k = 0, n = Math.ceil(L / 2); k <= n; k++) {
-        const q = this.route.getPointAt(k / n)
-        const key = `${Math.floor(q.x / C)},${Math.floor(q.z / C)}`
-        if (!cells.has(key)) cells.set(key, [])
-        cells.get(key).push(q.x, q.z)
-      }
-      const clear = (x, z, s) => {
-        const r = 3.2 * s + 1.5
-        const R = Math.ceil(r / C)
-        const cx = Math.floor(x / C)
-        const cz = Math.floor(z / C)
-        for (let i = -R; i <= R; i++)
-          for (let j = -R; j <= R; j++) {
-            const pts = cells.get(`${cx + i},${cz + j}`)
-            if (pts) for (let k = 0; k < pts.length; k += 2) if (Math.hypot(pts[k] - x, pts[k + 1] - z) < r) return false
-          }
-        return true
-      }
-      this.trees = buildTrees(this.scene, MOBILE, clear)
-    }
     this.#buildHalls()
     this.#buildStatue()
+    this.#buildGate()
+    this.#buildLamps()
+    this.#buildSparkles()
     this.#loadTerrain()
 
     // The tiger itself, running at the head of its pawprint trail.
-    this.tiger = new RunTiger(this.scene, undefined, { scale: 0.024, fur: MOBILE ? 3 : 6 })
+    // Drawn like the rest of the anime campus: clean coat, no fur shells.
+    this.tiger = new RunTiger(this.scene, undefined, { scale: 0.03, fur: 0 })
 
     // Bloom: lit windows and the pawprint trail glow as dusk falls.
-    this.composer = new EffectComposer(this.renderer)
-    this.composer.addPass(new RenderPass(this.scene, this.camera))
+    // The scene renders with its depth kept, for the ink outlines.
+    // A plain (single-sample) target with a 24-bit depth texture: it works
+    // the same in every browser (Safari garbles a multisampled float depth).
+    // Edges are smoothed by SMAA at the end instead.
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType })
+    rt.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType)
+    this.composer = new EffectComposer(this.renderer, rt)
+    const scenePass = new DepthRenderPass(this.scene, this.camera)
+    this.composer.addPass(scenePass)
+    // Ink straight after the scene, while it still reads that frame's depth
+    // and writes to the other buffer (sampling the depth of the buffer being
+    // drawn into would feed back).
+    this.ink = new InkPass(this.camera, scenePass)
+    this.composer.addPass(this.ink)
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.28, 2.6)
     this.composer.addPass(this.bloom)
+    this.grade = new ShaderPass(GRADE)
+    this.grade.setSize = (w, h) => this.grade.uniforms.uRes.value.set(w, h)
+    this.composer.addPass(this.grade)
     this.composer.addPass(new OutputPass())
+    this.composer.addPass(new SMAAPass())
 
     addEventListener('pointermove', (e) => this.mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))
-    canvas.addEventListener('pointerenter', () => (this.hover = true))
-    canvas.addEventListener('pointerleave', () => (this.hover = false))
     this.resize()
     addEventListener('resize', () => this.resize())
   }
@@ -303,8 +394,9 @@ export class AnamFlight {
     // A dim disc: at road level the sun sits in frame and would bleach it.
     u.showSunDisc.value = 0.05
     u.sunPosition.value.copy(SUN)
+    // The physical sky only lights the reflections; what you see is painted.
     this.sky = sky
-    this.scene.add(sky)
+    this.animeSky = new AnimeSky(this.scene)
     // Reflections from the same sky.
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     const envScene = new THREE.Scene()
@@ -312,7 +404,9 @@ export class AnamFlight {
     this.scene.environment = pmrem.fromScene(envScene, 0, 1, 30000).texture
     this.scene.environmentIntensity = 0.35
     pmrem.dispose()
-    this.scene.fog = new THREE.Fog('#b9a08e', 900, 3800)
+    this.scene.fog = new THREE.Fog('#bcd5e8', 700, 3600)
+    // Opaque behind everything, whatever the browser does with the sky dome.
+    this.scene.background = new THREE.Color('#bcd5e8')
 
     this.sun = new THREE.DirectionalLight('#ffc98f', 3.2)
     this.sun.castShadow = true
@@ -326,11 +420,15 @@ export class AnamFlight {
     c.updateProjectionMatrix()
     this.sun.shadow.bias = -0.0004
     this.sun.shadow.normalBias = 0.6
-    this.hemi = new THREE.HemisphereLight('#d8b9a0', '#5a4235', 0.55)
+    this.hemi = new THREE.HemisphereLight('#aac6ea', '#6a6450', 1.25)
     this.scene.add(this.sun, this.sun.target, this.hemi)
   }
 
-  // Ground texture painted from OSM land areas and streets; relief from DEM.
+  // Ground: what each spot is made of, from OSM (roads, walks, lawns and
+  // woods, everything else paved), drawn as a mask; relief from the DEM.
+  // Near the eye each surface gets its own photographed material at its real
+  // size; the aerial photograph takes over in the distance, where it reads
+  // as the real campus and its flattened cars and shadows no longer show.
   #buildGround() {
     const W = X1 - T.x0
     const D = Z1 - T.z0
@@ -342,82 +440,43 @@ export class AnamFlight {
     const ctx = cv.getContext('2d')
     const sx = CW / W
     const P = (x, z) => [(x - T.x0) * sx, (z - T.z0) * sx]
-    ctx.fillStyle = '#7b7b78'
-    ctx.fillRect(0, 0, CW, CH)
-    // Grain so large areas never look flat.
-    for (let i = 0; i < CW * CH * 0.004; i++) {
-      const v = 120 + Math.random() * 40
-      ctx.fillStyle = `rgba(${v},${v - 4},${v - 12},0.35)`
-      ctx.fillRect(Math.random() * CW, Math.random() * CH, 2 + Math.random() * 3, 2 + Math.random() * 3)
-    }
-    const FILL = { urban: '#807e79', campus: '#9d978a', dirt: '#9b8a6b', grass: '#6f8a47', wood: '#3f5a2e', parking: '#77736d', pitch: '#4f8a3c', track: '#a8553f', water: '#4c6f86', rock: '#8a857b' }
-    for (const a of WORLD.areas) {
+    const trace = (pts) => {
       ctx.beginPath()
-      a.p.forEach(([x, z], i) => (i ? ctx.lineTo(...P(x, z)) : ctx.moveTo(...P(x, z))))
+      pts.forEach(([x, z], i) => (i ? ctx.lineTo(...P(x, z)) : ctx.moveTo(...P(x, z))))
+    }
+    // Mask channels: red asphalt, green planted ground, blue paving; black is
+    // plain concrete (plazas, yards, the city's pavements).
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, CW, CH)
+    const MASK = { grass: '#00ff00', wood: '#00ff00', pitch: '#00ff00', dirt: '#00ff00', parking: '#ff0000' }
+    for (const a of WORLD.areas) {
+      if (!MASK[a.k]) continue
+      trace(a.p)
       ctx.closePath()
-      ctx.fillStyle = FILL[a.k]
+      ctx.fillStyle = MASK[a.k]
       ctx.fill()
-      if (a.k === 'wood' || a.k === 'grass') {
-        // Mottled canopy / lawn.
-        ctx.save()
-        ctx.clip()
-        const xs = a.p.map((p) => P(...p)[0])
-        const ys = a.p.map((p) => P(...p)[1])
-        const [minx, maxx, miny, maxy] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
-        const n = Math.min(4000, ((maxx - minx) * (maxy - miny)) / (a.k === 'wood' ? 60 : 140))
-        for (let i = 0; i < n; i++) {
-          ctx.fillStyle = a.k === 'wood' ? `rgba(${30 + Math.random() * 40},${60 + Math.random() * 40},${25 + Math.random() * 20},0.55)` : `rgba(${100 + Math.random() * 30},${130 + Math.random() * 30},${60 + Math.random() * 20},0.35)`
-          const r = (a.k === 'wood' ? 3 : 2) * sx * (1 + Math.random() * 2)
-          ctx.beginPath()
-          ctx.arc(minx + Math.random() * (maxx - minx), miny + Math.random() * (maxy - miny), r, 0, 7)
-          ctx.fill()
-        }
-        ctx.restore()
-      }
-      if (a.k === 'pitch') {
-        ctx.strokeStyle = 'rgba(255,255,255,0.6)'
-        ctx.lineWidth = 0.4 * sx
+    }
+    ctx.lineCap = ctx.lineJoin = 'round'
+    const WID = { w: 14, r: 7, p: 9, f: 3 }
+    for (const k of ['f', 'p', 'r', 'w']) {
+      ctx.strokeStyle = k === 'r' || k === 'w' ? '#ff0000' : '#0000ff'
+      for (const s of DATA.paths) {
+        if (s.k !== k) continue
+        trace(s.p)
+        ctx.lineWidth = WID[k] * sx
         ctx.stroke()
       }
     }
-    // Streets: asphalt with a lighter edge; walks in pale paving.
-    const WID = { w: 14, r: 7, p: 9, f: 3 }
-    const COL = { w: '#4a4a4c', r: '#57575a', p: '#b8ad9c', f: '#c2b7a5' }
-    for (const k of ['w', 'r', 'p', 'f']) {
-      for (const pass of [0, 1]) {
-        for (const s of DATA.paths) {
-          if (s.k !== k) continue
-          ctx.beginPath()
-          s.p.forEach(([x, z], i) => (i ? ctx.lineTo(...P(x, z)) : ctx.moveTo(...P(x, z))))
-          ctx.strokeStyle = pass ? COL[k] : 'rgba(40,38,34,0.35)'
-          ctx.lineWidth = (WID[k] + (pass ? 0 : 1.2)) * sx
-          ctx.lineCap = ctx.lineJoin = 'round'
-          ctx.stroke()
-        }
-      }
-    }
-    // Building contact shadows (ambient occlusion at the walls' feet).
-    ctx.fillStyle = 'rgba(30,26,22,0.35)'
-    for (const b of DATA.buildings) {
-      ctx.beginPath()
-      b.p.forEach(([x, z], i) => (i ? ctx.lineTo(...P(x + 1, z + 1)) : ctx.moveTo(...P(x + 1, z + 1))))
-      ctx.fill()
-    }
     const tex = new THREE.CanvasTexture(cv)
-    tex.colorSpace = THREE.SRGBColorSpace
     tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
     const seg = MOBILE ? 2 : 1
     const geo = new THREE.PlaneGeometry(W, D, Math.round(W / (10 * seg)), Math.round(D / (10 * seg)))
     geo.rotateX(-Math.PI / 2)
     geo.translate(T.x0 + W / 2, 0, T.z0 + D / 2)
-    const gmat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 })
-    // Close-up detail under the aerial photo (Poly Haven, CC0): asphalt on
-    // the dark roads, paving on the light walks, leaf litter on green ground,
-    // each with its normal map. Tree crowns and their shadows baked into the
-    // photo are swapped for plausible ground near the eye (the 3D trees and
-    // their real shadows stand there instead); far away the photo is kept.
+    const gmat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 })
+    // Photographed surfaces (Poly Haven, CC0), each with its normal map.
     const detail = {}
-    for (const [k, f] of [['uAsph', 'asphalt_02'], ['uPave', 'patterned_paving_02'], ['uSoil', 'forrest_ground_01']]) {
+    for (const [k, f] of [['uAsph', 'asphalt_02'], ['uPave', 'patterned_paving_02'], ['uGrass', 'leafy_grass'], ['uConc', 'concrete_floor_02']]) {
       for (const [kk, ff, srgb] of [[k, f, true], [k + 'N', f + '_nor', false]]) {
         const t = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/${ff}.jpg`)
         if (srgb) t.colorSpace = THREE.SRGBColorSpace
@@ -436,80 +495,87 @@ export class AnamFlight {
           '#include <common>',
           `#include <common>
           varying vec2 vXZ;
-          uniform sampler2D uAsph, uPave, uSoil, uAsphN, uPaveN, uSoilN;
+          uniform sampler2D uAsph, uPave, uGrass, uConc, uAsphN, uPaveN, uGrassN, uConcN;
           ${AER_GLSL}
           const vec3 LUMW = vec3(0.299, 0.587, 0.114);
-          // The photo blurred over a few metres: the neighbourhood's colour.
-          vec3 aerialBlur(vec2 xz, float b){
-            vec2 uc = xz * uCoreX.xy + uCoreX.zw;
-            vec2 ub = xz * uBaseX.xy + uBaseX.zw;
-            vec2 e = smoothstep(0.0, 0.03, uc) * smoothstep(1.0, 0.97, uc);
-            return mix(texture2D(uBase, ub, b - 2.0).rgb, texture2D(uCore, uc, b).rgb, e.x * e.y);
-          }
           float gHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
           float gNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
             return mix(mix(gHash(i), gHash(i + vec2(1, 0)), f.x), mix(gHash(i + vec2(0, 1)), gHash(i + 1.0), f.x), f.y); }
-          // Two scales of one detail texture, as grain around 1 (texture over its own average).
-          vec3 grain(sampler2D t, vec2 xz, float s1, float s2, float k){
-            vec2 a = xz / s1, b = mat2(0.8, -0.6, 0.6, 0.8) * xz / s2;
-            vec3 g1 = texture2D(t, a).rgb / max(texture2D(t, a, 12.0).rgb, vec3(0.02));
-            vec3 g2 = texture2D(t, b).rgb / max(texture2D(t, b, 12.0).rgb, vec3(0.02));
-            return mix(g1, g2, k);
+          // One texture at two scales and angles, mixed by a slow noise, so a
+          // tile never repeats visibly; s is the texture's real size in metres.
+          const mat2 ROT = mat2(0.8, -0.6, 0.6, 0.8);
+          vec3 surf(sampler2D t, vec2 xz, float s, float k){
+            return mix(texture2D(t, xz / s).rgb, texture2D(t, ROT * xz / (s * 1.37)).rgb, k);
           }
-          vec3 bump(sampler2D t, vec2 xz, float s1, float s2, float k){
-            vec2 a = xz / s1, b = mat2(0.8, -0.6, 0.6, 0.8) * xz / s2;
-            vec3 n1 = texture2D(t, a).xyz * 2.0 - 1.0;
-            vec3 n2 = texture2D(t, b).xyz * 2.0 - 1.0;
-            n2.xy = mat2(0.8, 0.6, -0.6, 0.8) * n2.xy;
-            return mix(n1, n2, k);
+          vec3 surfN(sampler2D t, vec2 xz, float s, float k){
+            vec3 a = texture2D(t, xz / s).xyz * 2.0 - 1.0;
+            vec3 b = texture2D(t, ROT * xz / (s * 1.37)).xyz * 2.0 - 1.0;
+            b.xy = mat2(0.8, 0.6, -0.6, 0.8) * b.xy;
+            return mix(a, b, k);
           }`,
         )
         .replace(
           '#include <map_fragment>',
-          `#include <map_fragment>
-          vec3 gN = vec3(0.0, 0.0, 1.0);
+          `vec3 gN = vec3(0.0, 0.0, 1.0);
           float gW = 0.0;
-          if (uAerOn > 0.5) {
+          {
             float dist = length(vViewPosition);
-            vec3 raw = aerialAt(vXZ);
-            float rl = dot(raw, LUMW);
-            // Canopy and its shadow in the photo: very dark, or dark and green.
-            float dg = clamp((raw.g - max(raw.r, raw.b)) * 25.0, 0.0, 1.0);
-            float canopy = max(smoothstep(0.075, 0.035, rl), dg * smoothstep(0.13, 0.07, rl));
-            float swap = canopy * (1.0 - smoothstep(70.0, 280.0, dist));
-            // What lies under it: paving in built-up areas, grass and soil in green ones.
-            vec3 hood = aerialBlur(vXZ, 6.0);
-            float hoodGreen = clamp((hood.g - max(hood.r, hood.b)) * 30.0, 0.0, 1.0);
-            float big = gNoise(vXZ / 23.0);
-            vec3 under = mix(vec3(0.15, 0.14, 0.12), mix(vec3(0.085, 0.1, 0.045), vec3(0.12, 0.1, 0.07), big), hoodGreen);
-            // A little of the neighbourhood's own hue.
-            under = mix(under, hood / max(dot(hood, LUMW), 0.01) * dot(under, LUMW), 0.35);
-            raw = mix(raw, under, swap);
-            vec3 aer = raw * 1.2;
-            // The photo's baked shadows are deeper than the scene's own: lift them.
-            aer = aer * (1.0 + 1.3 * (1.0 - smoothstep(0.0, 0.2, dot(aer, LUMW)))) + vec3(0.025, 0.024, 0.02);
-            aer = pow(aer, vec3(0.85)) * 1.1;
-            // Broad, gentle variation so nothing reads as a repeat.
-            aer *= mix(1.0, 0.92 + 0.16 * gNoise(vXZ / 41.0 + 7.0), 1.0 - smoothstep(150.0, 500.0, dist));
-            float near = 1.0 - smoothstep(40.0, 220.0, dist);
-            if (near > 0.0) {
-              float lum = dot(aer, LUMW);
-              float green = max(clamp((aer.g - max(aer.r, aer.b)) * 10.0, 0.0, 1.0), swap * hoodGreen);
-              float paved = smoothstep(0.1, 0.22, lum) * (1.0 - green);
-              float k = smoothstep(0.3, 0.7, gNoise(vXZ / 17.0));
-              vec3 da = grain(uAsph, vXZ, 1.7, 5.3, k);
-              vec3 dp = grain(uPave, vXZ, 2.0, 2.0, 0.0);
-              vec3 ds = grain(uSoil, vXZ, 1.9, 6.1, k);
-              vec3 d = mix(mix(da, mix(da, dp, 0.7), paved), ds, green);
-              d = clamp(d, 0.3, 2.0);
-              aer *= mix(vec3(1.0), d, near);
-              vec3 na = bump(uAsphN, vXZ, 1.7, 5.3, k);
-              vec3 np = bump(uPaveN, vXZ, 2.0, 2.0, 0.0);
-              vec3 ns = bump(uSoilN, vXZ, 1.9, 6.1, k);
-              gN = mix(mix(na, mix(na, np, 0.7), paved), ns, green);
-              gW = near;
+            vec4 m = texture2D(map, vMapUv);
+            // The same mask a few metres blurred: where it differs we are at a
+            // kerb or the edge of a lawn, darkened a little like a real one.
+            vec4 mb = texture2D(map, vMapUv, 3.0);
+            float k = smoothstep(0.3, 0.7, gNoise(vXZ / 13.0));
+            float road = m.r;
+            float green = m.g * (1.0 - road);
+            float walk = m.b * (1.0 - road) * (1.0 - green);
+            vec3 aer = vec3(0.0);
+            if (uAerOn > 0.5) {
+              aer = aerialAt(vXZ);
+              // Lawns the map leaves out still read green in the photograph.
+              float pg = clamp((aer.g - max(aer.r, aer.b)) * 18.0, 0.0, 1.0) * (1.0 - road) * (1.0 - walk);
+              green = max(green, pg);
             }
-            diffuseColor.rgb = aer;
+            float conc = max(0.0, 1.0 - road - green - walk);
+            // Clean and tidy, like a well-kept campus in an animated film:
+            // even tones, no blotches. Lawns are mown in broad stripes; walks
+            // are pale stone laid in a neat grid; roads a smooth slate
+            // asphalt; plazas light granite. Only a breath of large-scale
+            // variation keeps big areas from looking flat.
+            float soft = 0.97 + 0.06 * gNoise(vXZ / 40.0);
+            // Asphalt: even slate with a faint fine grain.
+            float gA = dot(surf(uAsph, vXZ, 4.0, k), LUMW) / max(dot(texture2D(uAsph, vXZ / 4.0, 10.0).rgb, LUMW), 0.02);
+            vec3 cA = vec3(0.21, 0.23, 0.27) * mix(1.0, gA, 0.06) * soft;
+            // Walks: pale stone slabs, 1.2 m, with thin joints.
+            vec2 sl = abs(fract(vXZ / 1.2) - 0.5);
+            float joint = smoothstep(0.47, 0.49, max(sl.x, sl.y));
+            float slab = 0.97 + 0.05 * gHash(floor(vXZ / 1.2));
+            vec3 cP = vec3(0.7, 0.63, 0.52) * slab * (1.0 - 0.18 * joint) * soft;
+            // Lawns: fresh green in mown stripes, 3 m wide, along the x axis.
+            float stripe = step(0.5, fract(vXZ.x / 6.0));
+            vec3 cG = mix(vec3(0.215, 0.44, 0.14), vec3(0.24, 0.475, 0.155), stripe) * soft;
+            // Plazas: light granite.
+            vec3 cC = vec3(0.6, 0.58, 0.54) * soft;
+            vec3 near = cA * road + cP * walk + cG * green + cC * conc;
+            float edge = clamp(abs(m.r - mb.r) * 2.2 + abs(m.g - mb.g) * 1.2, 0.0, 1.0);
+            // A crisp kerb line where one surface meets another.
+            near *= 1.0 - 0.22 * edge;
+            // Far: the aerial photograph, its baked shadows lifted and its
+            // blue haze taken out so it meets the near ground in tone.
+            vec3 far = near;
+            float kNear = 1.0;
+            if (uAerOn > 0.5) {
+              // Far: the photograph's layout, repainted in the same palette.
+              far = aer * 1.15;
+              far = far * (1.0 + 1.1 * (1.0 - smoothstep(0.0, 0.2, dot(far, LUMW)))) + vec3(0.02, 0.019, 0.016);
+              far = mix(vec3(dot(far, LUMW)), far, 1.3);
+              far = mix(far, near, 0.45);
+              kNear = 1.0 - smoothstep(110.0, 380.0, dist);
+            }
+            diffuseColor.rgb = mix(far, near, kNear);
+            if (kNear > 0.0) {
+              gN = surfN(uAsphN, vXZ, 4.0, k) * road + surfN(uPaveN, vXZ, 2.4, 0.0) * walk + surfN(uGrassN, vXZ, 2.2, k) * green + surfN(uConcN, vXZ, 3.0, k) * conc;
+              gW = kNear;
+            }
           }`,
         )
         .replace(
@@ -517,11 +583,17 @@ export class AnamFlight {
           `#include <normal_fragment_maps>
           if (gW > 0.0) {
             // Ground tangent frame: u along +x, v along +z, up +y.
-            vec3 nw = vec3(gN.x * 1.4, 0.0, gN.y * 1.4);
+            vec3 nw = vec3(gN.x * 0.35, 0.0, gN.y * 0.35); // only a hint of relief: clean surfaces
             normal = normalize(normal + (viewMatrix * vec4(nw, 0.0)).xyz * gW);
           }`,
         )
     }
+    // Beyond the terrain, a wide skirt of the city's own grey-green, so the
+    // map and the finale never look over the edge of the world.
+    const skirt = new THREE.Mesh(new THREE.RingGeometry(Math.min(W, D) * 0.48, 12000, 64, 1), new THREE.MeshStandardMaterial({ color: '#5d6458', roughness: 1 }))
+    skirt.rotation.x = -Math.PI / 2
+    skirt.position.set(T.x0 + W / 2, T.hmin - 2, T.z0 + D / 2)
+    this.scene.add(skirt)
     this.ground = new THREE.Mesh(geo, gmat)
     this.ground.receiveShadow = true
     this.scene.add(this.ground)
@@ -564,9 +636,15 @@ export class AnamFlight {
     // Things placed on the ground follow the relief.
     for (const t of this.targets) if (t.key) t.anchor.y = this.groundAt(t.anchor.x, t.anchor.z) + t.lift
     if (this.statue) this.statue.position.y = this.groundAt(this.statue.position.x, this.statue.position.z)
+    if (this.gate) this.gate.position.y = this.groundAt(this.gate.position.x, this.gate.position.z)
+    this.#placeLamps()
+    this.#placeBronze()
     this.#buildClearance()
-    this.#buildCameraPath()
+    this.#planShots()
+    this.#plantTrees()
+    this.#populate()
     this.#buildPaws()
+    this.#buildRibbon()
   }
 
   // Safe-height map: the highest thing (ground, roof, tower, tree, statue) in
@@ -590,6 +668,7 @@ export class AnamFlight {
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) top[j * gw + i] = Math.max(top[j * gw + i], y)
     }
     DATA.buildings.forEach((b, k) => {
+      if (b.flat) return
       const xs = b.p.map((p) => p[0])
       const zs = b.p.map((p) => p[1])
       const tower = TOWERS.test(b.n || '') && WORLD.styles[k] === 'g'
@@ -630,16 +709,6 @@ export class AnamFlight {
     return Math.max(d[j * c.gw + i], d[j * c.gw + i + 1], d[(j + 1) * c.gw + i], d[(j + 1) * c.gw + i + 1])
   }
 
-  // The whole scroll flight, precomputed: sampled along the tour, lifted over
-  // every obstacle, then smoothed
-  // so it glides with no kinks or swings.
-  // Tiger's-eye view: the camera runs low on the road a few metres behind the
-  // tiger and looks down the road past it; route parameter t is the tiger's.
-  #routeT(u) {
-    const T0 = 0.0005 // at the very start: no trail behind it yet
-    return u < TIGER_RUN ? T0 : Math.min(0.999, T0 + ((u - TIGER_RUN) / (TOUR_END - TIGER_RUN)) * (1 - T0))
-  }
-
   // Distance (m) from any point near the tour to the nearest building wall,
   // on a 1 m grid: footprints rasterised, then a two-pass chamfer transform.
   #wallField() {
@@ -652,6 +721,7 @@ export class AnamFlight {
     // Red marks a footprint; green and blue carry its roof height (0.1 m steps from -40 m).
     ctx.imageSmoothingEnabled = false
     DATA.buildings.forEach((b, k) => {
+      if (b.flat) return
       const top = Math.round((WORLD.bases[k] + b.h + 40) * 10)
       ctx.fillStyle = `rgb(255,${(top >> 8) & 255},${top & 255})`
       ctx.beginPath()
@@ -710,161 +780,182 @@ export class AnamFlight {
     }
   }
 
-  #buildCameraPath() {
-    const N = 1600
-    const A = { x: new Float32Array(N), y: new Float32Array(N), z: new Float32Array(N), lx: new Float32Array(N), ly: new Float32Array(N), lz: new Float32Array(N) }
-    const L = this.route.getLength()
-    // Keep the eye off the walls (footpaths often hug a building) and keep
-    // the tiger in sight: try the full chase distance first, pushed out of
-    // any wall, and close in when a building would stand between them.
-    const F = this.wallF ?? this.#wallField()
-    const clearOf = (c) => {
-      for (let it = 0; it < 6; it++) {
-        const d = F.dist(c.x, c.z)
-        if (d >= CHASE.wall) break
-        const [gx, gz] = F.grad(c.x, c.z)
-        c.x += gx * (CHASE.wall - d + 0.3)
-        c.z += gz * (CHASE.wall - d + 0.3)
-      }
-      return c
+  // One showcase shot per landmark, in the order the road reaches them: a
+  // slow arc around it at a three-quarter view, from the side the road runs
+  // past (so the waiting tiger stands in the foreground), at the nearest
+  // angle where nothing stands between the eye and the facade. Close and low
+  // first, then wider and higher until the view is clear.
+  #planShots() {
+    const F = this.wallF
+    const SWEEP = 0.5 // radians of arc per shot
+    const view = (s, a, R, hc) => {
+      const cam = new THREE.Vector3(s.cx + Math.sin(a) * R, 0, s.cz + Math.cos(a) * R)
+      cam.y = Math.max(s.base + hc, this.groundAt(cam.x, cam.z) + 3)
+      return cam
     }
-    // Clear line from the eye to the tiger: no wall and no rise of ground.
-    const eyeY = (c, p) => Math.max(this.groundAt(p.x, p.z) + CHASE.up, this.groundAt(c.x, c.z) + 1.5)
-    const sees = (c, p) => {
-      const n = Math.ceil(Math.hypot(p.x - c.x, p.z - c.z))
-      const y0 = eyeY(c, p)
-      const y1 = this.groundAt(p.x, p.z) + 1.2
-      for (let k = 1; k < n - 2; k++) {
+    const clearView = (s, cam) => {
+      if (F.dist(cam.x, cam.z) < 4 && F.top(cam.x, cam.z) > cam.y - 3) return false
+      const ly = s.base + s.hl
+      const n = Math.ceil(Math.hypot(s.cx - cam.x, s.cz - cam.z) / 2)
+      for (let k = 1; k < n; k++) {
         const f = k / n
-        const x = c.x + (p.x - c.x) * f
-        const z = c.z + (p.z - c.z) * f
-        const line = y0 + (y1 - y0) * f
-        if ((F.dist(x, z) < 0.6 && F.top(x, z) > line - 2) || this.groundAt(x, z) > line - 0.4) return false
+        const x = cam.x + (s.cx - cam.x) * f
+        const z = cam.z + (s.cz - cam.z) * f
+        if (x > s.x0 - 2 && x < s.x1 + 2 && z > s.z0 - 2 && z < s.z1 + 2) break // reached the subject
+        const y = cam.y + (ly - cam.y) * f
+        if (this.groundAt(x, z) > y - 1 || (F.dist(x, z) < 0.8 && F.top(x, z) > y - 2)) return false
       }
-      return y0 - y1 < CHASE.up * 1.6
+      return true
     }
-    const blur = (arr, r, passes = 3) => {
-      const t = new Float32Array(arr.length)
-      for (let p = 0; p < passes; p++) {
-        for (let i = 0; i < arr.length; i++) {
-          let s = 0
-          let n = 0
-          for (let d = -r; d <= r; d++) {
-            const k = Math.min(arr.length - 1, Math.max(0, i + d))
-            s += arr[k]
-            n++
-          }
-          t[i] = s / n
+    this.sight = []
+    this.shows = [...this.targets].sort((a, b) => a.routeU - b.routeU)
+    this.shows.forEach((t, n) => {
+      const f = t.foot
+      const cx = (f.x0 + f.x1) / 2
+      const cz = (f.z0 + f.z1) / 2
+      const span = Math.max(f.x1 - f.x0, f.z1 - f.z0)
+      const s = { cx, cz, x0: f.x0, x1: f.x1, z0: f.z0, z1: f.z1, base: f.base ?? this.groundAt(cx, cz), hl: t.key === 'tiger' ? 6 : f.h * 0.45 }
+      const spot = this.route.getPointAt(t.routeU)
+      // The gate is shot from outside, looking in: the campus behind it.
+      const pref = t.key === 'gate' && this.gateIn ? Math.atan2(-this.gateIn.x, -this.gateIn.z) : Math.atan2(spot.x - cx, spot.z - cz)
+      // Framed close enough that the hall fills the shot.
+      const R0 = t.key === 'tiger' ? 23 : t.key === 'gate' ? 50 : t.key ? 30 : THREE.MathUtils.clamp(span * 0.72 + 24, 40, 135)
+      const h0 = t.key === 'gate' ? 5 : t.key ? 4 : f.h * 0.3 + R0 * 0.16
+      let pick = null
+      for (const [kr, kh] of [[1, 1], [1.3, 1.8], [1.6, 2.8], [2, 4]]) {
+        for (let m = 0; m <= 36 && !pick; m++) {
+          const a = pref + (m % 2 ? 1 : -1) * Math.ceil(m / 2) * (Math.PI / 36)
+          if ([-SWEEP / 2, 0, SWEEP / 2].every((o) => clearView(s, view(s, a + o, R0 * kr, h0 * kh)))) pick = { a, R: R0 * kr, hc: h0 * kh }
         }
-        arr.set(t)
+        if (pick) break
       }
-    }
-    // Pass 1, where the eye stands: the longest chase distance that keeps
-    // the tiger in sight, pushed off the walls.
-    const TP = []
-    const cx = new Float32Array(N)
-    const cz = new Float32Array(N)
-    for (let i = 0; i < N; i++) {
-      const t = this.#routeT(i / (N - 1))
-      const tp = this.route.getPointAt(t)
-      TP.push(tp)
-      let c = null
-      for (const back of [CHASE.back, 13, 10, 7, 5]) {
-        const tryC = clearOf(this.route.getPointAt(Math.max(0, t - back / L)))
-        if (sees(tryC, tp)) {
-          c = tryC
-          break
-        }
+      pick ??= { a: pref, R: R0 * 2, hc: h0 * 4 }
+      // Alternate the direction of the arc from one landmark to the next.
+      const dir = n % 2 ? 1 : -1
+      t.shot = { ...s, R: pick.R, hc: pick.hc, a0: pick.a - (dir * SWEEP) / 2, a1: pick.a + (dir * SWEEP) / 2 }
+      // The bronze tiger turns to face the camera that shows it (three-quarter on).
+      if (t.key === 'tiger' && this.statue) ((this.statue.rotation.y = pick.a - 0.35), this.#placeBronze())
+      // Sight lines to keep free of tree crowns: the near 70% of each.
+      for (const o of [0, 0.5, 1]) {
+        const cam = view(s, t.shot.a0 + (t.shot.a1 - t.shot.a0) * o, pick.R, pick.hc)
+        const L = Math.hypot(cx - cam.x, cz - cam.z)
+        for (let d = 0; d < L * 0.7; d += 3) this.sight.push([cam.x + ((cx - cam.x) * d) / L, cam.z + ((cz - cam.z) * d) / L])
       }
-      c ??= this.route.getPointAt(Math.max(0, t - 5 / L))
-      cx[i] = c.x
-      cz[i] = c.z
-    }
-    // Pass 2: smooth it, keep it off the walls, and wherever smoothing has
-    // put something between eye and tiger, slide the eye along that line
-    // toward the tiger until it sees it again.
-    blur(cx, 4)
-    blur(cz, 4)
-    const v = new THREE.Vector3()
-    for (let i = 0; i < N; i++) {
-      clearOf(v.set(cx[i], 0, cz[i]))
-      const tp = TP[i]
-      for (let k = 0; k < 8 && !sees(v, tp); k++) v.lerp(new THREE.Vector3(tp.x, 0, tp.z), 0.2)
-      cx[i] = v.x
-      cz[i] = v.z
-    }
-    // Pass 3: height and aim from the final eye position.
-    for (let i = 0; i < N; i++) {
-      const u = i / (N - 1)
-      const t = this.#routeT(u)
-      const tp = TP[i]
-      const q = this.route.getPointAt(Math.min(1, t + CHASE.ahead / L))
-      const up = THREE.MathUtils.smoothstep(u, TOUR_END, 1)
-      const ground = this.groundAt(tp.x, tp.z)
-      const c = { x: cx[i], z: cz[i] }
-      A.x[i] = c.x
-      A.z[i] = c.z + up * 420
-      // Height above the tiger's own ground, never into the slope under the eye.
-      const camY = Math.max(ground + CHASE.up, this.groundAt(c.x, c.z) + 1.5)
-      A.y[i] = camY + up * 520
-      // Aim down the road, but never so far off the tiger (round a bend, or
-      // looking out over it from a rise) that it leaves the frame.
-      const dT = Math.hypot(tp.x - c.x, tp.z - c.z)
-      const yawT = Math.atan2(tp.x - c.x, tp.z - c.z)
-      let dy = Math.atan2(q.x - c.x, q.z - c.z) - yawT
-      dy = Math.atan2(Math.sin(dy), Math.cos(dy))
-      const yaw = yawT + THREE.MathUtils.clamp(dy, -0.22, 0.22)
-      const r = Math.max(20, Math.hypot(q.x - c.x, q.z - c.z))
-      const pitchT = Math.atan2(ground + 1.2 - camY, Math.max(1, dT))
-      const pitchQ = Math.atan2(Math.max(this.groundAt(q.x, q.z), ground) + CHASE.look - camY, r)
-      const pitch = THREE.MathUtils.clamp(pitchQ, pitchT - 0.05, pitchT + 0.32)
-      A.lx[i] = THREE.MathUtils.lerp(c.x + Math.sin(yaw) * r, 60, up)
-      A.lz[i] = THREE.MathUtils.lerp(c.z + Math.cos(yaw) * r, -380, up)
-      A.ly[i] = THREE.MathUtils.lerp(camY + Math.tan(pitch) * r, 0, up)
-    }
-    blur(A.y, 3)
-    for (const k of ['lx', 'lz', 'ly']) blur(A[k], 6)
-    const R = A
-    this.path = { ...R, N }
-    // Lock-ons peak when the aim passes closest to each landmark.
-    for (const tg of this.targets) {
-      let best = 0
-      let bd = Infinity
-      for (let i = 0; i < N; i++) {
-        const d = Math.hypot(R.lx[i] - tg.anchor.x, R.lz[i] - tg.anchor.z)
-        if (d < bd) (bd = d), (best = i)
-      }
-      tg.u = best / (N - 1)
-    }
-    this.#buildPace()
+    })
   }
 
-  // Scroll -> path position. The path itself runs at an even speed; here the
-  // flight eases off at the gate and at every landmark (more scroll per
-  // metre, so it lingers) and rushes through the stretches in between.
-  #buildPace() {
-    const N = 800
-    const cum = new Float32Array(N)
-    let acc = 0
-    for (let i = 0; i < N; i++) {
-      const u = i / (N - 1)
-      let d = 0.55 + 1.6 * Math.exp(-((u / 0.04) ** 2))
-      for (const t of this.targets) if (t.u !== undefined) d += 2.4 * Math.exp(-(((u - t.u) / 0.02) ** 2))
-      cum[i] = acc
-      acc += d
+  // Trees everywhere but across the tiger's road (it would run through the
+  // trunks) and the near part of every showcase view.
+  #plantTrees() {
+    const C = 4
+    const cells = new Map()
+    const add = (x, z, pad) => {
+      const key = `${Math.floor(x / C)},${Math.floor(z / C)}`
+      if (!cells.has(key)) cells.set(key, [])
+      cells.get(key).push(x, z, pad)
     }
-    this.pace = (s) => {
-      const want = THREE.MathUtils.clamp(s, 0, 1) * cum[N - 1]
-      let lo = 0
-      let hi = N - 1
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >> 1
-        if (cum[mid] < want) lo = mid
-        else hi = mid
+    const L = this.route.getLength()
+    for (let k = 0, n = Math.ceil(L / 2); k <= n; k++) {
+      const q = this.route.getPointAt(k / n)
+      add(q.x, q.z, 1.5)
+    }
+    for (const [x, z] of this.sight) add(x, z, 3)
+    const keep = (x, z, s) => {
+      const r = 3.2 * s + 3
+      const R = Math.ceil(r / C)
+      const cx = Math.floor(x / C)
+      const cz = Math.floor(z / C)
+      for (let i = -R; i <= R; i++)
+        for (let j = -R; j <= R; j++) {
+          const pts = cells.get(`${cx + i},${cz + j}`)
+          if (pts) for (let k = 0; k < pts.length; k += 3) if (Math.hypot(pts[k] - x, pts[k + 1] - z) < 3.2 * s + pts[k + 2]) return false
+        }
+      return true
+    }
+    this.trees = buildTrees(this.scene, MOBILE, keep)
+  }
+
+  // Students: walking the campus paths and sitting in groups on the lawns.
+  #populate() {
+    const inBox = ([x, z]) => x > -800 && x < 320 && z > -340 && z < 560
+    const polylines = DATA.paths.filter((w) => w.k !== 'w' && w.p.every(inBox) && (w.k !== 'r' || Math.random() < 0.5)).map((w) => w.p)
+    const polyIn = (poly) => (x, z) => {
+      let r = false
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, zi] = poly[i]
+        const [xj, zj] = poly[j]
+        if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) r = !r
       }
-      const t = (want - cum[lo]) / Math.max(1e-6, cum[hi] - cum[lo])
-      return (lo + THREE.MathUtils.clamp(t, 0, 1)) / (N - 1)
+      return r
     }
+    const lawn = (poly) => {
+      const xs = poly.map((q) => q[0])
+      const zs = poly.map((q) => q[1])
+      return { box: [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)], inside: polyIn(poly) }
+    }
+    const lawns = [lawn(DATA.landmarks.plazaRing), lawn(DATA.landmarks.plazaRing), ...WORLD.areas.filter((a) => a.k === 'grass' && a.p.every(inBox)).map((a) => lawn(a.p))]
+    this.students = new Students(this.scene, { polylines, lawns, clear: (x, z) => this.wallF.dist(x, z), groundAt: (x, z) => this.groundAt(x, z), walkers: MOBILE ? 240 : 650, sitters: MOBILE ? 90 : 260, near: (this.shows || this.targets || []).map((t) => (t.shot ? [t.shot.cx, t.shot.cz] : [t.anchor.x, t.anchor.z])), extra: MOBILE ? 120 : 320 })
+  }
+
+  // Where the film is: the map (before the first shot), which shot and how
+  // far through it, how dark the cut is, and the finale's rise.
+  #schedule(u) {
+    const up = THREE.MathUtils.smoothstep(u, TOUR_END, 1)
+    const n = this.shows?.length ?? 1
+    const slot = (TOUR_END - SHOWS_START) / n
+    const f = THREE.MathUtils.clamp((u - SHOWS_START) / slot, 0, n - 1e-6)
+    const i = Math.floor(f)
+    // A dip to black either side of every cut (none into the finale's rise).
+    const edge = Math.min(Math.abs(u - (SHOWS_START + i * slot)), i === n - 1 ? 1 : Math.abs(u - (SHOWS_START + (i + 1) * slot)))
+    const cut = u < SHOWS_START - 0.015 ? 0 : 1 - THREE.MathUtils.smoothstep(edge, 0.002, 0.012)
+    return { up, i, k: f - i, cut, map: u < SHOWS_START }
+  }
+
+  // Shot i at k (0..1): the camera move for that landmark.
+  #shotPose(t, k, move) {
+    const s = t.shot
+    const e = THREE.MathUtils.smootherstep(k, 0, 1)
+    const mid = (s.a0 + s.a1) / 2
+    let a = mid
+    let R = s.R
+    let h = s.hc
+    let ly = s.hl
+    if (move === 'orbit') {
+      a = s.a0 + (s.a1 - s.a0) * e
+      R = s.R * (1 - 0.08 * e)
+    } else if (move === 'crane') {
+      // From eye level on the lawn up to look out over the hall.
+      R = s.R * 0.9
+      h = THREE.MathUtils.lerp(2.2, s.hc * 1.7, e)
+      ly = THREE.MathUtils.lerp(s.hl * 0.8, s.hl * 1.05, e)
+      a = mid + (s.a1 - s.a0) * 0.15 * (e - 0.5)
+    } else {
+      // Dolly: a slow push in toward the entrance front.
+      R = THREE.MathUtils.lerp(s.R * 1.3, s.R * 0.78, e)
+      h = s.hc * 0.75
+    }
+    const pos = new THREE.Vector3(s.cx + Math.sin(a) * R, s.base + h, s.cz + Math.cos(a) * R)
+    pos.y = Math.max(pos.y, this.groundAt(pos.x, pos.z) + 2)
+    const right = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a))
+    const look = new THREE.Vector3(s.cx, s.base + ly, s.cz).addScaledVector(right, this.portrait ? 0 : -R * 0.12)
+    return { pos, look, a }
+  }
+
+  // The map view: high over the middle of the tour, tipped a little to the
+  // north so the halls read as buildings, not just roofs.
+  #mapPose() {
+    if (!this.mapAt) {
+      const xs = this.shows.map((t) => t.shot.cx)
+      const zs = this.shows.map((t) => t.shot.cz)
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+      const cz = (Math.min(...zs) + Math.max(...zs)) / 2
+      const span = Math.max(Math.max(...xs) - Math.min(...xs), (Math.max(...zs) - Math.min(...zs)) * (this.camera.aspect || 1.6))
+      const H = span * (this.portrait ? 1.45 : 0.78)
+      // On a phone the chapter's words fill the top: the campus sits lower.
+      const dz = this.portrait ? -span * 0.28 : 0
+      this.mapAt = { look: new THREE.Vector3(cx, 0, cz + dz), pos: new THREE.Vector3(cx, H, cz + dz + H * 0.42) }
+    }
+    return { pos: this.mapAt.pos.clone(), look: this.mapAt.look.clone() }
   }
 
   #setNight(n) {
@@ -875,12 +966,17 @@ export class AnamFlight {
     u.rayleigh.value = 1.9 + n * 2.2
     u.turbidity.value = 7 - n * 4
     // The light itself never drops below the horizon.
-    this.lightDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - THREE.MathUtils.lerp(11, 4, n)), THREE.MathUtils.degToRad(235 + n * 12))
-    this.sun.intensity = THREE.MathUtils.lerp(3.2, 0.45, n)
+    // At night it is the moon: higher, so its shadows stay short and soft.
+    this.lightDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - THREE.MathUtils.lerp(11, 36, n)), THREE.MathUtils.degToRad(235 + n * 12))
+    this.sunDir.lerp(this.lightDir, n).normalize()
+    this.sun.intensity = THREE.MathUtils.lerp(3.2, 1.0, n)
     this.sun.color.lerpColors(...DUSK.sun, n)
-    this.hemi.intensity = THREE.MathUtils.lerp(0.55, 0.32, n)
+    // Anime shadows are light and blue, never black.
+    this.hemi.intensity = THREE.MathUtils.lerp(1.25, 0.8, n)
     this.hemi.color.lerpColors(...DUSK.sky, n)
     this.scene.fog.color.lerpColors(...DUSK.fog, n)
+    this.scene.background.copy(this.scene.fog.color)
+    if (this.lampMat) this.lampMat.opacity = n
     this.scene.environmentIntensity = THREE.MathUtils.lerp(0.35, 0.12, n)
   }
 
@@ -890,13 +986,14 @@ export class AnamFlight {
     // cornice on the stone halls, slate roofs (hipped or mansard) on the gothic
     // halls, and towers with battlements and pinnacles on the three great halls.
     const geos = []
+    let campusNow = 1
     const add = (geo, style, seed, base, top, poly) => {
       geo = geo.index ? geo.toNonIndexed() : geo
       for (const k of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(k)) geo.deleteAttribute(k)
       if (!geo.attributes.normal) geo.computeVertexNormals()
       if (style === BST.slate) slopeUV(geo)
       else wallUV(geo, poly)
-      geos.push(tagB(geo, style, seed, base, top))
+      geos.push(tagB(geo, style, seed, base, top, campusNow))
     }
     const prism = (poly, y0, y1) => {
       const g = new THREE.ExtrudeGeometry(new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, -z))), { depth: y1 - y0, bevelEnabled: false })
@@ -1063,6 +1160,8 @@ export class AnamFlight {
     }
 
     DATA.buildings.forEach((b, i) => {
+      if (b.flat) return
+      campusNow = b.c ? 1 : 0
       const base = WORLD.bases[i]
       const s = STYLE[WORLD.styles[i]]
       const seed = ((i * 0.6180339) % 1 + 1) % 1
@@ -1165,8 +1264,15 @@ export class AnamFlight {
     // five times its length when it runs within 8 m of a wall.
     this.wallF = this.#wallField()
     const F = this.wallF
+    // OSM also maps passages through arcades and lobbies: an edge that enters a
+    // footprint costs sixty times its length, so it is a last resort only.
     const nearWall = (x, z) => Math.max(0, 1 - F.dist(x, z) / 8)
-    const cost = (ax, az, bx, bz) => 1 + 4 * Math.max(nearWall(ax, az), nearWall(bx, bz), nearWall((ax + bx) / 2, (az + bz) / 2))
+    const inside = (ax, az, bx, bz) => {
+      const n = Math.ceil(Math.hypot(bx - ax, bz - az))
+      for (let s = 0; s <= n; s++) if (F.dist(ax + ((bx - ax) * s) / n, az + ((bz - az) * s) / n) < 1) return true
+      return false
+    }
+    const cost = (ax, az, bx, bz) => (inside(ax, az, bx, bz) ? 60 : 1) * (1 + 4 * Math.max(nearWall(ax, az), nearWall(bx, bz), nearWall((ax + bx) / 2, (az + bz) / 2)))
     // Tour waypoints that sit against a wall move out into open ground, so
     // the leg passes a landmark at a distance instead of brushing it.
     const tour = WORLD.tour.map(([x, z, ...rest]) => {
@@ -1177,7 +1283,8 @@ export class AnamFlight {
       }
       return [x, z, ...rest]
     })
-    const pts = roadTour(tour, DATA.paths, cost).map(([x, z]) => new THREE.Vector3(x, 0, z))
+    // The tiger is ~5 m long and swings its head: keep 3.5 m from any wall.
+    const pts = keepOffWalls(roadTour(tour, DATA.paths, cost), F, 3.5).map(([x, z]) => new THREE.Vector3(x, 0, z))
     this.route = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5)
 
     const hallOf = (name) => {
@@ -1193,24 +1300,21 @@ export class AnamFlight {
     }
     this.targets = TARGETS.map((t) => {
       let anchor
-      let box = null
+      let foot = null
       let lift = 0
       if (t.key) {
         const [x, z] = DATA.landmarks[t.key]
-        lift = t.key === 'tiger' ? 8 : 12
+        lift = t.key === 'tiger' ? 11 : 12
         anchor = new THREE.Vector3(x, lift, z)
+        const r = t.key === 'tiger' ? 6 : 10
+        foot = { x0: x - r, x1: x + r, z0: z - r, z1: z + r, base: null, h: t.key === 'tiger' ? 9 : 11 }
       } else {
         const { b, i, xs, zs } = hallOf(t.hall)
         const base = WORLD.bases[i]
         const cx = (Math.max(...xs) + Math.min(...xs)) / 2
         const cz = (Math.max(...zs) + Math.min(...zs)) / 2
         anchor = new THREE.Vector3(cx, base + b.h + 6, cz)
-        box = new THREE.LineSegments(
-          new THREE.EdgesGeometry(new THREE.BoxGeometry(Math.max(...xs) - Math.min(...xs) + 6, b.h + 6, Math.max(...zs) - Math.min(...zs) + 6)),
-          new THREE.LineBasicMaterial({ color: '#ff3b30', transparent: true, opacity: 0, fog: false }),
-        )
-        box.position.set(cx, base + (b.h + 6) / 2, cz)
-        this.scene.add(box)
+        foot = { x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs), base, h: TOWERS.test(b.n) ? b.h * 1.4 : b.h }
       }
       let bestU = 0
       let bestD = Infinity
@@ -1219,7 +1323,7 @@ export class AnamFlight {
         const d = Math.hypot(q.x - anchor.x, q.z - anchor.z)
         if (d < bestD) (bestD = d), (bestU = k / 400)
       }
-      return { ...t, anchor, box, lift, u: bestU }
+      return { ...t, anchor, foot, lift, routeU: bestU, near: 0 }
     })
   }
 
@@ -1252,28 +1356,712 @@ export class AnamFlight {
     ].sort((a, b) => a.name.localeCompare(b.name, 'ko'))
   }
 
-  // 호상: a granite plinth with a crimson beacon marking the tiger statue.
+  // Golden motes drifting in the air about the hall in shot, like light in
+  // an illustrated tale.
+  #buildSparkles() {
+    const n = MOBILE ? 220 : 520
+    const p = new Float32Array(n * 3)
+    const sd = new Float32Array(n)
+    for (let i = 0; i < n; i++) {
+      p.set([(Math.random() - 0.5) * 2, Math.random(), (Math.random() - 0.5) * 2], i * 3)
+      sd[i] = Math.random()
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3))
+    g.setAttribute('aSeed', new THREE.BufferAttribute(sd, 1))
+    this.sparkU = { uTime: { value: 0 }, uC: { value: new THREE.Vector3() }, uR: { value: 60 }, uH: { value: 30 }, uA: { value: 0 }, uPx: { value: 1 } }
+    this.sparkles = new THREE.Points(
+      g,
+      new THREE.ShaderMaterial({
+        uniforms: this.sparkU,
+        vertexShader: `attribute float aSeed; uniform float uTime, uR, uH, uPx; uniform vec3 uC; varying float vTw;
+          void main(){
+            vec3 p = uC + vec3(position.x * uR, position.y * uH, position.z * uR);
+            p.y += mod(uTime * (0.6 + aSeed * 0.8) + aSeed * uH, uH) - position.y * uH * 0.0;
+            p.x += sin(uTime * 0.5 + aSeed * 30.0) * 2.0;
+            p.z += cos(uTime * 0.4 + aSeed * 20.0) * 2.0;
+            vTw = 0.5 + 0.5 * sin(uTime * (2.0 + aSeed * 3.0) + aSeed * 50.0);
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
+            gl_Position = projectionMatrix * mv;
+            gl_PointSize = uPx * (2.0 + aSeed * 3.0) * 60.0 / -mv.z;
+          }`,
+        fragmentShader: `uniform float uA; varying float vTw;
+          void main(){
+            float d = length(gl_PointCoord - 0.5);
+            float a = smoothstep(0.5, 0.0, d);
+            gl_FragColor = vec4(vec3(1.0, 0.86, 0.55) * (0.8 + vTw), a * a * uA * (0.4 + 0.6 * vTw));
+          }`,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    )
+    this.sparkles.frustumCulled = false
+    this.scene.add(this.sparkles)
+  }
+
+  // 정문: a granite gatehouse on the axis 정문 – 중앙광장 – 본관. Two great
+  // gothic towers with corner buttresses, battlements and pinnacles carry a
+  // pointed main arch; the name in gold across it and the shield on a crest
+  // stone above. Lower wings either side, each with a pedestrian arch and a
+  // turret, then railings out to lamp piers. Iron gates stand open, banners
+  // hang on the towers, lanterns and floodlights warm it at night.
+  #buildGate() {
+    const b = DATA.buildings.find((x) => x.gate)
+    if (!b) return
+    const o = obb(b.p)
+    // Straddle the road: centred on it where it passes the gate, square to it.
+    let best = 0
+    let bd = Infinity
+    for (let k = 0; k <= 600; k++) {
+      const q = this.route.getPointAt(k / 600)
+      const d = Math.hypot(q.x - o.cx, q.z - o.cz)
+      if (d < bd) ((bd = d), (best = k / 600))
+    }
+    const at = this.route.getPointAt(best)
+    const tan = this.route.getTangentAt(best).setY(0).normalize()
+    const g = new THREE.Group()
+    g.position.set(at.x, 0, at.z)
+    g.rotation.y = -Math.atan2(tan.x, -tan.z) // local x runs across the road
+
+    // Dressed granite: ashlar courses, each block a slightly different grey.
+    const ashlar = (() => {
+      const c = document.createElement('canvas')
+      c.width = c.height = 512
+      const x = c.getContext('2d')
+      let seed = 11
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+      const rows = 8
+      const rh = 512 / rows
+      for (let r = 0; r < rows; r++) {
+        let cx = r % 2 ? -64 : 0
+        while (cx < 512) {
+          const w = 96 + rnd() * 64
+          const v = 200 + rnd() * 30
+          x.fillStyle = `rgb(${v},${v - 4},${v - 12})`
+          x.fillRect(cx, r * rh, w, rh)
+          for (let k = 0; k < 40; k++) {
+            x.fillStyle = `rgba(90,80,70,${rnd() * 0.08})`
+            x.fillRect(cx + rnd() * w, r * rh + rnd() * rh, 3, 3)
+          }
+          x.fillStyle = 'rgba(70,62,56,0.55)'
+          x.fillRect(cx, r * rh, 3, rh)
+          cx += w
+        }
+        x.fillStyle = 'rgba(70,62,56,0.55)'
+        x.fillRect(0, r * rh, 512, 3)
+      }
+      const t = new THREE.CanvasTexture(c)
+      t.wrapS = t.wrapT = THREE.RepeatWrapping
+      t.colorSpace = THREE.SRGBColorSpace
+      t.anisotropy = 8
+      return t
+    })()
+    const stoneM = new THREE.MeshStandardMaterial({ map: ashlar, color: '#d9d2c4', roughness: 0.88 })
+    const trimM = new THREE.MeshStandardMaterial({ color: '#a9a090', roughness: 0.85 })
+    const stoneGeos = []
+    const trimGeos = []
+    // World-scale UVs (one texture tile = 4 m) so courses line up everywhere.
+    const worldUV = (geo) => {
+      const p = geo.attributes.position
+      const n = geo.attributes.normal
+      const uv = geo.attributes.uv
+      for (let i = 0; i < p.count; i++) {
+        const ax = Math.abs(n.getX(i))
+        const ay = Math.abs(n.getY(i))
+        const u = ay > 0.5 ? p.getX(i) : ax > 0.5 ? p.getZ(i) : p.getX(i)
+        const v = ay > 0.5 ? p.getZ(i) : p.getY(i)
+        uv.setXY(i, u / 4, v / 4)
+      }
+      return geo
+    }
+    const box = (w, h, d, x, y, z, trim = false) => {
+      const geo = worldUV(new THREE.BoxGeometry(w, h, d).translate(x, y, z))
+      ;(trim ? trimGeos : stoneGeos).push(geo)
+    }
+    const add = (mesh) => {
+      mesh.castShadow = mesh.receiveShadow = true
+      g.add(mesh)
+      return mesh
+    }
+    // Pointed arch outline (w wide, springing at s, apex at h) for holes.
+    const pointed = (w, s, h, x0 = 0) => {
+      const r = w / 2
+      const p = new THREE.Path()
+      p.moveTo(x0 - r, 0)
+      p.lineTo(x0 - r, s)
+      p.quadraticCurveTo(x0 - r, s + (h - s) * 0.75, x0, h)
+      p.quadraticCurveTo(x0 + r, s + (h - s) * 0.75, x0 + r, s)
+      p.lineTo(x0 + r, 0)
+      p.closePath()
+      return p
+    }
+    // A wall slab of depth d with arch holes, in the local x-y plane.
+    const slab = (x0, x1, y1, d, holes) => {
+      const sh = new THREE.Shape()
+      sh.moveTo(x0, 0)
+      sh.lineTo(x1, 0)
+      sh.lineTo(x1, y1)
+      sh.lineTo(x0, y1)
+      sh.closePath()
+      sh.holes = holes
+      const geo = new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: false, curveSegments: 16 })
+      geo.translate(0, 0, -d / 2)
+      stoneGeos.push(worldUV(geo.toNonIndexed()))
+    }
+    const battlements = (cx, y, w, d, n) => {
+      for (let k = 0; k < n; k++) {
+        const t = -w / 2 + (w / n) * (k + 0.5)
+        box(w / n / 1.8, 1.1, 0.45, cx + t, y + 0.55, d / 2 - 0.2)
+        box(w / n / 1.8, 1.1, 0.45, cx + t, y + 0.55, -d / 2 + 0.2)
+      }
+    }
+
+    // Emblem and banner art.
+    const crest = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.4, color: '#f2ece2' })
+    const bc = document.createElement('canvas')
+    bc.width = 300
+    bc.height = 900
+    const bannerTex = new THREE.CanvasTexture(bc)
+    bannerTex.colorSpace = THREE.SRGBColorSpace
+    bannerTex.anisotropy = 8
+    const drawBanner = (img) => {
+      const x = bc.getContext('2d')
+      x.fillStyle = '#8f0f22'
+      x.fillRect(0, 0, 300, 900)
+      x.strokeStyle = '#d9b46a'
+      x.lineWidth = 8
+      x.strokeRect(16, 16, 268, 868)
+      if (img) {
+        const h = 250
+        const w = (h * img.naturalWidth) / img.naturalHeight
+        x.drawImage(img, 150 - w / 2, 70, w, h)
+      }
+      x.fillStyle = '#f4ede0'
+      x.font = '900 130px "Noto Serif KR", serif'
+      x.textAlign = 'center'
+      x.textBaseline = 'middle'
+      x.fillText('高', 150, 450)
+      x.fillText('大', 150, 610)
+      x.font = '700 34px "Pretendard Variable", Pretendard, sans-serif'
+      x.fillText('SINCE 1905', 150, 790)
+      bannerTex.needsUpdate = true
+    }
+    drawBanner(null)
+    new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}brand/ku-emblem.png`, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace
+      t.anisotropy = 8
+      crest.map = t
+      crest.color.set('#ffffff')
+      crest.needsUpdate = true
+      drawBanner(t.image)
+    })
+    // Floodlight from below: a warm wash fading up the faces.
+    const wash = document.createElement('canvas')
+    wash.width = 4
+    wash.height = 128
+    {
+      const x = wash.getContext('2d')
+      const gr = x.createLinearGradient(0, 128, 0, 0)
+      gr.addColorStop(0, 'rgba(255,190,110,0.55)')
+      gr.addColorStop(0.55, 'rgba(255,170,90,0.18)')
+      gr.addColorStop(1, 'rgba(255,160,80,0)')
+      x.fillStyle = gr
+      x.fillRect(0, 0, 4, 128)
+    }
+    const washMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(wash), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })
+    const glass = new THREE.MeshBasicMaterial({ color: '#ffc874' })
+    const glassGeo = []
+    const lancetGeo = (w, h) => {
+      const s = new THREE.Shape()
+      const r = w * 0.5
+      s.moveTo(-r, 0)
+      s.lineTo(-r, h - w)
+      s.quadraticCurveTo(-r, h - w * 0.25, 0, h)
+      s.quadraticCurveTo(r, h - w * 0.25, r, h - w)
+      s.lineTo(r, 0)
+      return new THREE.ShapeGeometry(s, 8)
+    }
+    const windowAt = (w, h, x, y, z, back) => {
+      const geo = lancetGeo(w, h)
+      if (back) geo.rotateY(Math.PI)
+      glassGeo.push(geo.translate(x, y, z))
+    }
+
+    const span = THREE.MathUtils.clamp(o.L * 0.9, 16, 22)
+    const TW = 6 // great tower width
+    const TH = 22 // to the parapet
+    const D = 6 // depth of the gatehouse
+    const SPRING = 9.5
+    const APEX = 15
+    for (const s of [-1, 1]) {
+      const x = s * (span / 2 + TW / 2)
+      // Great tower: plinth, shaft, string courses, corbelled parapet.
+      box(TW + 1, 1.4, D + 1, x, 0.7, 0, true)
+      box(TW, TH, D, x, TH / 2, 0)
+      for (const y of [SPRING, APEX + 0.6]) box(TW + 0.35, 0.4, D + 0.35, x, y, 0, true)
+      box(TW + 0.9, 0.6, D + 0.9, x, TH + 0.3, 0, true)
+      battlements(x, TH + 0.6, TW + 0.9, D + 0.9, 4)
+      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        // Stepped corner buttresses up the tower, a pinnacle crowning each.
+        const bx = x + (cx * TW) / 2
+        const bz = (cz * D) / 2
+        box(1.1, TH * 0.55, 1.1, bx, TH * 0.275, bz)
+        box(0.85, TH * 0.35, 0.85, bx, TH * 0.55 + TH * 0.175, bz)
+        box(0.75, 2.4, 0.75, bx, TH + 1.6, bz, true)
+        const pin = new THREE.Mesh(new THREE.ConeGeometry(0.55, 3.6, 4), trimM)
+        pin.rotation.y = Math.PI / 4
+        pin.position.set(bx, TH + 4.6, bz)
+        add(pin)
+      }
+      // Pyramid roof between the pinnacles.
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(TW * 0.62, 4.5, 4), new THREE.MeshStandardMaterial({ color: '#3c3a44', roughness: 0.6 }))
+      roof.rotation.y = Math.PI / 4
+      roof.position.set(x, TH + 3.0, 0)
+      add(roof)
+      for (const f of [1, -1]) {
+        const z = f * (D / 2 + 0.02)
+        // Paired lancets high up, a tall single one between the string courses.
+        for (const wx of [-0.9, 0.9]) windowAt(1.0, 4.0, x + wx, APEX + 1.5, z, f < 0)
+        windowAt(0.8, 2.6, x, 3.2, z, f < 0)
+        const ban = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 6.6), new THREE.MeshStandardMaterial({ map: bannerTex, roughness: 0.9 }))
+        ban.position.set(x, SPRING - 0.2 - 3.3 + 3.9, z + f * 0.28)
+        ban.position.y = 10.1 + 3.3 - 3.0
+        if (f < 0) ban.rotation.y = Math.PI
+        g.add(ban)
+        const fl = new THREE.Mesh(new THREE.PlaneGeometry(TW + 1.2, 16), washMat)
+        fl.position.set(x, 8, z + f * 0.26)
+        if (f < 0) fl.rotation.y = Math.PI
+        g.add(fl)
+      }
+      // Lanterns on brackets either side of the main arch, both faces.
+      for (const f of [1, -1]) {
+        const lx = x - s * (TW / 2 - 0.6)
+        box(0.18, 0.18, 0.9, lx, 7.2, f * (D / 2 + 0.45), true)
+        const cage = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.95, 0.6), new THREE.MeshStandardMaterial({ color: '#1d1a18', roughness: 0.5, metalness: 0.6 }))
+        cage.position.set(lx, 6.6, f * (D / 2 + 0.9))
+        g.add(cage)
+        const glow = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffd59a' }))
+        glow.position.copy(cage.position)
+        g.add(glow)
+      }
+      // Iron gate leaves, swung open against the tower's inner face.
+      const leaf = new THREE.Mesh(new THREE.PlaneGeometry(D - 0.6, 6.5), (this.#ironMat ??= this.#makeIron()))
+      leaf.rotation.y = Math.PI / 2
+      leaf.position.set(x - s * (TW / 2 + 0.12), 3.25, 0)
+      g.add(leaf)
+
+      // The wing: a wall with a pedestrian arch, then a turret.
+      const w0 = s * (span / 2 + TW)
+      const WL = 7
+      const wx0 = Math.min(w0, w0 + s * WL)
+      const wx1 = Math.max(w0, w0 + s * WL)
+      const mid = (wx0 + wx1) / 2
+      slab(wx0, wx1, 11, 3.6, [pointed(3.2, 4.2, 6.6, mid)])
+      box(WL + 0.2, 0.5, 4.0, mid, 11.25, 0, true)
+      battlements(mid, 11.5, WL, 4.0, 4)
+      for (const f of [1, -1]) {
+        const fl = new THREE.Mesh(new THREE.PlaneGeometry(WL, 10), washMat)
+        fl.position.set(mid, 5, f * 1.95)
+        if (f < 0) fl.rotation.y = Math.PI
+        g.add(fl)
+        windowAt(0.7, 2.0, mid, 8.0, f * 1.82, f < 0)
+      }
+      const tx = w0 + s * (WL + 1.8)
+      box(4.0, 1.0, 4.6, tx, 0.5, 0, true)
+      box(3.6, 15, 4.2, tx, 7.5, 0)
+      box(4.1, 0.5, 4.7, tx, 15.25, 0, true)
+      battlements(tx, 15.5, 4.1, 4.7, 3)
+      const tr = new THREE.Mesh(new THREE.ConeGeometry(2.4, 4.2, 4), new THREE.MeshStandardMaterial({ color: '#3c3a44', roughness: 0.6 }))
+      tr.rotation.y = Math.PI / 4
+      tr.position.set(tx, 17.6, 0)
+      add(tr)
+      for (const f of [1, -1]) windowAt(0.8, 2.8, tx, 10.5, f * 2.12, f < 0)
+      // Railings out to a lamp pier.
+      const rx = tx + s * 7
+      box(10, 1.2, 0.9, rx, 0.6, 0, true)
+      const rail = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 1.8), this.#ironMat)
+      rail.position.set(rx, 2.1, 0)
+      g.add(rail)
+      box(1.5, 3.8, 1.5, tx + s * 12.6, 1.9, 0)
+      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), new THREE.MeshBasicMaterial({ color: '#ffe3b8' }))
+      globe.position.set(tx + s * 12.6, 4.2, 0)
+      g.add(globe)
+    }
+    // The main arch: a pointed soffit between the towers, deep as the towers.
+    {
+      const w = span
+      slab(-w / 2, w / 2, TH - 2, D - 0.6, [pointed(w, SPRING, APEX)])
+      box(w + 0.4, 0.5, D + 0.2, 0, TH - 1.75, 0, true)
+      battlements(0, TH - 1.5, w, D + 0.2, 7)
+      // Arch mouldings: a trim band following the arch on both faces.
+      for (const f of [1, -1]) {
+        const sh = new THREE.Shape()
+        const r = w / 2
+        sh.moveTo(-r - 0.6, 0)
+        sh.lineTo(-r - 0.6, SPRING)
+        sh.quadraticCurveTo(-r - 0.6, SPRING + (APEX + 0.8 - SPRING) * 0.75, 0, APEX + 0.8)
+        sh.quadraticCurveTo(r + 0.6, SPRING + (APEX + 0.8 - SPRING) * 0.75, r + 0.6, SPRING)
+        sh.lineTo(r + 0.6, 0)
+        sh.lineTo(r, 0)
+        sh.holes = []
+        sh.lineTo(r, SPRING)
+        sh.quadraticCurveTo(r, SPRING + (APEX - SPRING) * 0.75, 0, APEX)
+        sh.quadraticCurveTo(-r, SPRING + (APEX - SPRING) * 0.75, -r, SPRING)
+        sh.lineTo(-r, 0)
+        sh.closePath()
+        const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.35, bevelEnabled: false, curveSegments: 16 })
+        geo.translate(0, 0, f > 0 ? (D - 0.6) / 2 : -(D - 0.6) / 2 - 0.35)
+        trimGeos.push(geo.toNonIndexed())
+      }
+      // The name, gold on dark granite, both faces.
+      const c = document.createElement('canvas')
+      c.width = 1536
+      c.height = 220
+      const x = c.getContext('2d')
+      x.fillStyle = '#231a17'
+      x.fillRect(0, 0, 1536, 220)
+      x.strokeStyle = '#c9a25a'
+      x.lineWidth = 8
+      x.strokeRect(12, 12, 1512, 196)
+      x.fillStyle = '#efcf83'
+      x.font = '900 140px "Noto Serif KR", serif'
+      x.textAlign = 'center'
+      x.textBaseline = 'middle'
+      x.fillText('高 麗 大 學 校', 768, 118)
+      const t = new THREE.CanvasTexture(c)
+      t.colorSpace = THREE.SRGBColorSpace
+      t.anisotropy = 8
+      const pw = Math.min(w * 0.7, 13)
+      for (const f of [1, -1]) {
+        const plaque = new THREE.Mesh(new THREE.PlaneGeometry(pw, pw * (220 / 1536)), new THREE.MeshBasicMaterial({ map: t, color: '#e0d8c8' }))
+        plaque.position.set(0, (APEX + 0.8 + TH - 2) / 2, f * ((D - 0.6) / 2 + 0.03))
+        if (f < 0) plaque.rotation.y = Math.PI
+        g.add(plaque)
+      }
+      // Crest: a shield of granite over the middle, the emblem on both faces.
+      const CH = 6.4
+      const CW = CH * 0.8
+      const shield = new THREE.Shape()
+      shield.moveTo(-CW / 2, CH)
+      shield.lineTo(CW / 2, CH)
+      shield.lineTo(CW / 2, CH * 0.42)
+      shield.quadraticCurveTo(CW / 2, CH * 0.1, 0, 0)
+      shield.quadraticCurveTo(-CW / 2, CH * 0.1, -CW / 2, CH * 0.42)
+      shield.closePath()
+      const sg = new THREE.ExtrudeGeometry(shield, { depth: 1.2, bevelEnabled: true, bevelThickness: 0.15, bevelSize: 0.2, bevelSegments: 2, curveSegments: 12 })
+      sg.translate(0, TH - 1.0, -0.6)
+      trimGeos.push(sg.toNonIndexed())
+      const eh = CH * 0.78
+      const ew = (eh * 593) / 797
+      for (const f of [1, -1]) {
+        const em = new THREE.Mesh(new THREE.PlaneGeometry(ew, eh), crest)
+        em.position.set(0, TH - 1.0 + CH * 0.52, f * 0.78)
+        if (f < 0) em.rotation.y = Math.PI
+        g.add(em)
+      }
+    }
+    add(new THREE.Mesh(mergeGeometries(stoneGeos.map((x) => (x.index ? x.toNonIndexed() : x))), stoneM))
+    add(new THREE.Mesh(mergeGeometries(trimGeos.map((x) => (x.index ? x.toNonIndexed() : x)).map((x) => (x.deleteAttribute('uv'), x))), trimM))
+    g.add(new THREE.Mesh(mergeGeometries(glassGeo.map((x) => (x.index ? x.toNonIndexed() : x))), glass))
+    // Warm light pooled under the arch.
+    const lamp = new THREE.PointLight('#ffbf7a', 30, 40, 1.6)
+    lamp.position.set(0, 8, 0)
+    g.add(lamp)
+    this.gateLight = lamp
+    this.gate = g
+    this.scene.add(g)
+    // The gate shot frames the whole gatehouse.
+    const tg = this.targets?.find((t) => t.key === 'gate')
+    if (tg) {
+      const r = span / 2 + TW + 4
+      tg.anchor.x = at.x
+      tg.anchor.z = at.z
+      tg.foot = { x0: at.x - r, x1: at.x + r, z0: at.z - r, z1: at.z + r, base: null, h: 26 }
+    }
+    // Which way along the road is campus: toward 본관.
+    const main = DATA.buildings.filter((x) => x.n === '본관').map((x) => obb(x.p))[0]
+    this.gateIn = tan.clone()
+    if (main && (main.cx - at.x) * tan.x + (main.cz - at.z) * tan.z < 0) this.gateIn.negate()
+  }
+
+  #ironMat
+  #makeIron() {
+    // Wrought iron: bars with spear tips, two rails, a ring between.
+    const c = document.createElement('canvas')
+    c.width = 256
+    c.height = 256
+    const x = c.getContext('2d')
+    x.strokeStyle = '#fff'
+    x.fillStyle = '#fff'
+    x.lineWidth = 14
+    for (let i = 16; i < 256; i += 32) {
+      x.beginPath()
+      x.moveTo(i, 256)
+      x.lineTo(i, 22)
+      x.stroke()
+      x.beginPath()
+      x.moveTo(i - 12, 30)
+      x.lineTo(i, 4)
+      x.lineTo(i + 12, 30)
+      x.fill()
+    }
+    x.fillRect(0, 40, 256, 14)
+    x.fillRect(0, 226, 256, 18)
+    x.lineWidth = 9
+    for (let i = 32; i < 256; i += 64) {
+      x.beginPath()
+      x.arc(i, 80, 13, 0, Math.PI * 2)
+      x.stroke()
+    }
+    const t = new THREE.CanvasTexture(c)
+    t.wrapS = THREE.RepeatWrapping
+    t.repeat.set(1.5, 1)
+    return new THREE.MeshStandardMaterial({ color: '#2a2522', metalness: 0.6, roughness: 0.5, map: t, alphaTest: 0.5, side: THREE.DoubleSide })
+  }
+
+  // Street lamps along the film's road, both sides, staggered: a dark post,
+  // a warm globe that blooms, and a pool of light on the ground under it.
+  #buildLamps() {
+    const L = this.route.getLength()
+    this.lampAt = []
+    for (let d = 8, k = 0; d < L - 8; d += 24, k++) {
+      const u = d / L
+      const q = this.route.getPointAt(u)
+      const t = this.route.getTangentAt(u)
+      const side = k % 2 ? 1 : -1
+      this.lampAt.push([q.x - t.z * side * 6.5, q.z + t.x * side * 6.5])
+    }
+    const n = this.lampAt.length
+    const post = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.14, 5, 6).translate(0, 2.5, 0), new THREE.MeshStandardMaterial({ color: '#23262e', roughness: 0.6, metalness: 0.5 }), n)
+    const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.42, 12, 10).translate(0, 5.2, 0), new THREE.MeshBasicMaterial({ color: '#ffd9a0' }), n)
+    const c = document.createElement('canvas')
+    c.width = c.height = 64
+    const x = c.getContext('2d')
+    const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32)
+    gr.addColorStop(0, 'rgba(255,200,130,0.38)')
+    gr.addColorStop(0.45, 'rgba(255,180,110,0.13)')
+    gr.addColorStop(1, 'rgba(255,170,100,0)')
+    x.fillStyle = gr
+    x.fillRect(0, 0, 64, 64)
+    this.lampMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4, opacity: 0 })
+    const pool = new THREE.InstancedMesh(new THREE.PlaneGeometry(16, 16).rotateX(-Math.PI / 2), this.lampMat, n)
+    this.lamps = [post, head, pool]
+    for (const m of this.lamps) ((m.frustumCulled = false), this.scene.add(m))
+    this.#placeLamps()
+  }
+
+  #placeLamps() {
+    if (!this.lamps) return
+    const m = new THREE.Matrix4()
+    this.lampAt.forEach(([x, z], i) => {
+      const y = this.groundAt(x, z)
+      m.makeTranslation(x, y, z)
+      this.lamps[0].setMatrixAt(i, m)
+      this.lamps[1].setMatrixAt(i, m)
+      m.makeTranslation(x, y + 0.15, z)
+      this.lamps[2].setMatrixAt(i, m)
+    })
+    for (const l of this.lamps) l.instanceMatrix.needsUpdate = true
+  }
+
+  // 호상: a bronze tiger, snarling, on a tall granite pedestal in a small
+  // paved plaza, the way it stands on campus. At night it is floodlit from
+  // the ground, its bronze catching a warm rim of light.
   #buildStatue() {
     const [x, z] = DATA.landmarks.tiger
     const g = new THREE.Group()
     g.position.set(x, 0, z)
-    const stone = new THREE.MeshStandardMaterial({ color: '#8f8a84', roughness: 0.85 })
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 3), stone)
-    plinth.position.y = 1.5
-    plinth.castShadow = true
-    const beacon = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.6, 1.6, 40, 16, 1, true),
-      new THREE.MeshBasicMaterial({ color: '#ff2a1a', transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }),
-    )
-    beacon.position.y = 23
-    g.add(plinth, beacon)
-    this.beacon = beacon
+    const stone = new THREE.MeshStandardMaterial({ color: '#ddd5c7', roughness: 0.8 })
+    const polished = new THREE.MeshStandardMaterial({ color: '#2f2b2a', roughness: 0.28, metalness: 0.25 })
+    const tier = (w, h, d, y, mat = stone) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)
+      m.position.y = y + h / 2
+      m.castShadow = m.receiveShadow = true
+      g.add(m)
+      return m
+    }
+    // Plaza: a round paved floor with a darker ring, granite benches round it.
+    const plaza = new THREE.Mesh(new THREE.CylinderGeometry(10, 10.2, 0.4, 48), new THREE.MeshStandardMaterial({ color: '#c9c1b2', roughness: 0.9 }))
+    plaza.position.y = -0.15
+    plaza.receiveShadow = true
+    g.add(plaza)
+    const ring = new THREE.Mesh(new THREE.RingGeometry(7.2, 7.8, 48).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#8f8576', roughness: 0.9 }))
+    ring.position.y = 0.06
+    g.add(ring)
+    tier(9.2, 1.0, 6.8, 0) // base step
+    tier(7.8, 0.9, 5.6, 1.0) // second step
+    tier(6.4, 2.4, 4.3, 1.9, polished) // die
+    tier(7.0, 0.5, 4.9, 4.3) // cap
+    // The name on the die, gold on polished granite, front and back.
+    const c = document.createElement('canvas')
+    c.width = 1024
+    c.height = 384
+    const cx = c.getContext('2d')
+    cx.fillStyle = '#2f2b2a'
+    cx.fillRect(0, 0, 1024, 384)
+    cx.strokeStyle = '#c9a25a'
+    cx.lineWidth = 6
+    cx.strokeRect(20, 20, 984, 344)
+    cx.fillStyle = '#efcf83'
+    cx.textAlign = 'center'
+    cx.textBaseline = 'middle'
+    cx.font = '900 190px "Noto Serif KR", serif'
+    cx.fillText('虎 像', 512, 165)
+    cx.font = '700 48px "Pretendard Variable", Pretendard, sans-serif'
+    cx.fillText('KOREA UNIVERSITY', 512, 305)
+    const tex = new THREE.CanvasTexture(c)
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.anisotropy = 8
+    for (const f of [1, -1]) {
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.95), new THREE.MeshBasicMaterial({ map: tex, color: '#d8d0c0' }))
+      p.position.set(0, 3.1, f * 2.16)
+      if (f < 0) p.rotation.y = Math.PI
+      g.add(p)
+    }
+    // Benches and lantern posts round the plaza.
+    const postM = new THREE.MeshStandardMaterial({ color: '#23262e', roughness: 0.6, metalness: 0.5 })
+    const globeM = new THREE.MeshBasicMaterial({ color: '#ffd9a0' })
+    for (let k = 0; k < 4; k++) {
+      const a = Math.PI / 4 + (k * Math.PI) / 2
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 3.6, 8), postM)
+      post.position.set(Math.sin(a) * 9, 1.8, Math.cos(a) * 9)
+      g.add(post)
+      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 10), globeM)
+      globe.position.set(Math.sin(a) * 9, 3.8, Math.cos(a) * 9)
+      g.add(globe)
+      const bench = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.5, 0.9), stone)
+      bench.position.set(Math.sin(a + Math.PI / 4) * 8.6, 0.3, Math.cos(a + Math.PI / 4) * 8.6)
+      bench.rotation.y = a + Math.PI / 4
+      bench.castShadow = bench.receiveShadow = true
+      g.add(bench)
+    }
+    // Ground floodlights: little glowing fixtures, and the light itself.
+    const fixM = new THREE.MeshBasicMaterial({ color: '#fff0d0' })
+    for (const [fx, fz] of [[-5.5, 6.6], [5.5, 6.6], [0, -7.2]]) {
+      const fix = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.2, 12), fixM)
+      fix.position.set(fx, 0.12, fz)
+      g.add(fix)
+      const sp = new THREE.SpotLight('#ffcf94', 260, 30, 0.22, 0.7, 2)
+      sp.position.set(fx, 0.3, fz)
+      sp.target.position.set(0, 7.2, 0)
+      g.add(sp, sp.target)
+    }
     this.statue = g
     this.scene.add(g)
+    // The bronze: the same tiger, struck in metal, held in its snarl.
+    this.bronze = new RunTiger(this.scene, undefined, { scale: 0.042, fur: 0, rim: 0 })
+    this.bronze.onReady = () => {
+      // Cast bronze with the stripes still in it as darker patina, and a
+      // warm rim where the light grazes it, so it reads even at night.
+      this.bronze.group.traverse((o) => {
+        if (!o.isMesh) return
+        const map = o.material.map
+        const mat = new THREE.MeshStandardMaterial({ map, metalness: 0.55, roughness: 0.3, envMapIntensity: 1.6 })
+        mat.onBeforeCompile = (sh) => {
+          sh.fragmentShader = sh.fragmentShader
+            .replace(
+              '#include <map_fragment>',
+              `#include <map_fragment>
+              {
+                float lum = dot(diffuseColor.rgb, vec3(0.333));
+                float stripe = smoothstep(0.45, 0.2, lum);
+                diffuseColor.rgb = mix(vec3(0.8, 0.56, 0.3), vec3(0.22, 0.14, 0.08), stripe);
+              }`,
+            )
+            .replace(
+              '#include <emissivemap_fragment>',
+              `#include <emissivemap_fragment>
+              {
+                float fr = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 3.0);
+                totalEmissiveRadiance += vec3(1.0, 0.68, 0.32) * fr * 0.32 + diffuseColor.rgb * 0.05;
+              }`,
+            )
+        }
+        o.material = mat
+        o.castShadow = true
+      })
+      // The 호상's stance: head low and pushed forward, a snarl, the
+      // shoulders sunk as if about to spring, the tail curling up.
+      const gt = this.bronze.gait
+      gt.mix = 1
+      gt.hold([
+        ['c_jaw_00', 0.42],
+        ['c_neck_00', 0.2],
+        ['c_neck_01', 0.12],
+        ['c_head_00', -0.08],
+        ['c_chest_00', 0.08],
+        ['l_femurRibbonFront_00', -0.18],
+        ['r_femurRibbonFront_00', 0.08],
+        ['l_tibiaRibbonFront_00', -0.25],
+        ['c_tail_00', 0.18, 0.15],
+        ['c_tail_02', -0.12, 0.2],
+        ['c_tail_04', -0.2, 0.2],
+        ['c_tail_06', -0.25, 0.15],
+      ])
+      this.bronze.group.visible = true
+      this.#placeBronze()
+    }
+  }
+
+  #placeBronze() {
+    if (!this.bronze?.ready || !this.statue) return
+    const g = this.statue
+    this.bronze.group.position.set(g.position.x, g.position.y + 4.8, g.position.z)
+    this.bronze.group.rotation.y = g.rotation.y
   }
 
   // Tiger pawprints along the tour, left and right in turn, left behind by
   // the running tiger and glowing hottest just behind it.
+  // The tiger's road on the map: a crimson dashed line edged in white,
+  // lying on the ground, seen from above before the tour dives in.
+  #buildRibbon() {
+    const L = this.route.getLength()
+    const n = Math.ceil(L / 3)
+    const pos = []
+    const uv = []
+    const idx = []
+    for (let k = 0; k <= n; k++) {
+      const t = k / n
+      const p = this.route.getPointAt(t)
+      const d = this.route.getTangentAt(t).setY(0).normalize()
+      const sx = -d.z * 4.5
+      const sz = d.x * 4.5
+      const y = this.groundAt(p.x, p.z) + 0.6
+      pos.push(p.x + sx, y, p.z + sz, p.x - sx, y, p.z - sz)
+      uv.push(t * L, 0, t * L, 1)
+      if (k < n) idx.push(k * 2, k * 2 + 1, k * 2 + 2, k * 2 + 1, k * 2 + 3, k * 2 + 2)
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+    g.setIndex(idx)
+    this.ribbon = new THREE.Mesh(
+      g,
+      new THREE.ShaderMaterial({
+        uniforms: { uOpacity: { value: 1 } },
+        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `uniform float uOpacity; varying vec2 vUv;
+          void main(){
+            float across = abs(vUv.y - 0.5) * 2.0;
+            float dash = step(0.3, fract(vUv.x / 22.0));
+            vec3 c = across > 0.62 ? vec3(1.0) : vec3(0.78, 0.06, 0.14);
+            float a = (across > 0.62 ? 1.0 : dash) * uOpacity;
+            if (a < 0.01) discard;
+            gl_FragColor = vec4(c, a);
+          }`,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -6,
+      }),
+    )
+    this.ribbon.frustumCulled = false
+    this.ribbon.renderOrder = 2
+    this.scene.add(this.ribbon)
+  }
+
   #buildPaws() {
     const prints = []
     const L = this.route.getLength()
@@ -1359,16 +2147,21 @@ export class AnamFlight {
     if (A.t < 2) return
     const avg = A.sum / A.n
     A.t = A.n = A.sum = 0
-    const next = avg > 1 / 40 ? Math.max(0.55, A.scale - 0.15) : avg < 1 / 57 ? Math.min(1, A.scale + 0.1) : A.scale
-    if (next === A.scale) return
+    // A device that keeps struggling (two slow spells running) steps down
+    // once, a little, and stays there: switching resolution back and forth
+    // re-samples the whole frame and reads as flicker.
+    A.slow = avg > 1 / 28 ? (A.slow ?? 0) + 1 : 0
+    if (A.scale < 1 || A.slow < 2) return
+    const next = 0.85
     A.scale = next
-    const pr = Math.min(devicePixelRatio, MOBILE ? 1.25 : 1.6) * next
+    const pr = Math.min(devicePixelRatio, MOBILE ? 1.25 : 1.5) * next
     this.renderer.setPixelRatio(pr)
     this.composer.setPixelRatio(pr)
     this.resize()
   }
 
   resize() {
+    this.mapAt = null
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
     this.renderer.setSize(w, h, false)
@@ -1384,7 +2177,6 @@ export class AnamFlight {
   still(pos, look, { w = 2400, h = 1500, fov = 50, statue = false } = {}) {
     const keep = this.statue.visible
     this.statue.visible = statue
-    for (const t of this.targets) if (t.box) t.box.visible = false
     this.renderer.setPixelRatio(1)
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
@@ -1397,7 +2189,6 @@ export class AnamFlight {
     this.renderer.render(this.scene, this.camera)
     const url = this.canvas.toDataURL('image/jpeg', 0.88)
     this.statue.visible = keep
-    for (const t of this.targets) if (t.box) t.box.visible = true
     this.resize()
     return url
   }
@@ -1410,92 +2201,65 @@ export class AnamFlight {
   }
 
   #tourPose(u) {
-    const up = THREE.MathUtils.smoothstep(u, TOUR_END, 1)
+    const { up, i, k, map } = this.#schedule(u)
     this.overview = up
-    const P = this.path
-    const pos = new THREE.Vector3()
-    const look = new THREE.Vector3()
-    if (P) {
-      const f = u * (P.N - 1)
-      const i = Math.min(P.N - 2, Math.floor(f))
-      const t = f - i
-      const L = (a) => a[i] + (a[i + 1] - a[i]) * t
-      pos.set(L(P.x), L(P.y), L(P.z))
-      look.set(L(P.lx), L(P.ly), L(P.lz))
+    this.shot = map ? -1 : i
+    let pos
+    let look
+    if (this.shows && map) {
+      // The map: a slow drone drift, pushing in toward the first stop.
+      const m = this.#mapPose()
+      const g = new THREE.Vector3(this.shows[0].shot.cx, 0, this.shows[0].shot.cz)
+      const e = THREE.MathUtils.smoothstep(u, 0, SHOWS_START)
+      pos = m.pos.lerp(g.clone().add(new THREE.Vector3(0, m.pos.y * 0.55, (m.pos.z - m.look.z) * 0.55)), e * 0.6)
+      look = m.look.lerp(g, e * 0.6)
+    } else if (this.shows) {
+      ;({ pos, look } = this.#shotPose(this.shows[i], k, MOVES[i % MOVES.length]))
+      if (up > 0) {
+        pos = pos.clone().lerp(new THREE.Vector3(-560, 540, 880), THREE.MathUtils.smootherstep(up, 0, 1))
+        look = look.clone().lerp(new THREE.Vector3(60, 0, -380), THREE.MathUtils.smootherstep(up, 0, 0.45))
+      }
     } else {
       // Terrain still loading: hold high over the main gate.
       const [gx, gz] = DATA.landmarks.gate
-      pos.set(gx, 200, gz + 260)
-      look.set(gx, 0, gz - 100)
+      pos = new THREE.Vector3(gx, 200, gz + 260)
+      look = new THREE.Vector3(gx, 0, gz - 100)
     }
-    // Gentle pointer steer, never into anything.
+    // A breath of hand-held drift and pointer parallax.
     const side = new THREE.Vector3(look.z - pos.z, 0, pos.x - look.x).normalize()
-    pos.addScaledVector(side, -this.mouse.x * 1.5 * (1 - up))
-    pos.y += this.mouse.y * 0.8 * (1 - up)
-    // Passing a landmark, the tiger's gaze turns to it and the eye lifts a little.
-    if (this.targets && !up) {
-      let w = 0
-      const at = new THREE.Vector3()
-      // Only landmarks standing back from the road: a wall right beside it
-      // would fill the frame.
-      for (const t of this.targets) if (t.near > w && Math.hypot(t.anchor.x - pos.x, t.anchor.z - pos.z) > 30) (w = t.near), at.copy(t.anchor)
-      w = THREE.MathUtils.smootherstep(w, 0, 1)
-      if (w > 0) {
-        // Turn toward it, but never more than ~35° off the road, and tilt up
-        // to take in the facade; the tiger stays in frame.
-        const road = Math.atan2(look.x - pos.x, look.z - pos.z)
-        let off = Math.atan2(at.x - pos.x, at.z - pos.z) - road
-        off = Math.atan2(Math.sin(off), Math.cos(off))
-        const yaw = road + THREE.MathUtils.clamp(off, -0.15, 0.15) * w
-        const r = Math.hypot(look.x - pos.x, look.z - pos.z)
-        pos.y += w * 4
-        look.set(pos.x + Math.sin(yaw) * r, look.y + w * 3, pos.z + Math.cos(yaw) * r)
-      }
-    }
-    pos.y = Math.max(pos.y, THREE.MathUtils.lerp(this.groundAt(pos.x, pos.z) + 1.5, this.clearAt(pos.x, pos.z) + 22, up))
-    // Portrait screens see more sky, so they look further down.
-    look.y -= this.portrait ? 2 + up * 170 : 0
-    // A tall screen is narrow: keep the aim within a few degrees of the tiger.
-    if (this.portrait && this.tiger?.ready && up < 1 && !this.free) {
-      const T = this.tiger.group.position
-      const yT = Math.atan2(T.x - pos.x, T.z - pos.z)
-      const r = Math.hypot(look.x - pos.x, look.z - pos.z)
-      let d = Math.atan2(look.x - pos.x, look.z - pos.z) - yT
-      d = Math.atan2(Math.sin(d), Math.cos(d))
-      const yaw = yT + THREE.MathUtils.lerp(THREE.MathUtils.clamp(d, -0.12, 0.12), d, up)
-      look.x = pos.x + Math.sin(yaw) * r
-      look.z = pos.z + Math.cos(yaw) * r
-    }
+    // (None over the map: from that height any drift makes the city shimmer.)
+    const hand = map ? 0 : 1
+    pos.addScaledVector(side, (-this.mouse.x * 1.5 * (1 - up) + Math.sin(this.time * 0.4) * 0.3) * hand)
+    pos.y += (this.mouse.y * 0.8 * (1 - up) + Math.sin(this.time * 0.31) * 0.15) * hand
+    pos.y = Math.max(pos.y, this.groundAt(pos.x, pos.z) + 1.5)
+    look.y -= this.portrait ? up * 170 : 0
     return { pos, look }
   }
 
   render(dt) {
     this.time += dt
-    this.boost += ((this.hover && !this.free ? 0.03 : 0) - this.boost) * Math.min(1, dt * 2)
-    const s = this.pace ? this.pace(this.progress) : this.progress
-    const u = Math.min(1, s + this.boost * (1 - s))
+    const u = this.progress
     // Critically damped follow of the scroll position.
-    this.u = this.u === undefined ? u : this.u + (u - this.u) * (1 - Math.exp(-dt * 2.6))
+    // Heavily damped: wheel steps become one smooth glide, never a lurch.
+    this.u = this.u === undefined ? u : this.u + (u - this.u) * (1 - Math.exp(-dt * 1.7))
     this.look ??= new THREE.Vector3()
 
     let pose = this.#tourPose(this.u)
-    if (this.route && !this.free && this.u < 0.12) {
-      const { p, d } = this.#tigerAt(this.u)
-      // Beside it and a little ahead, so the roar is seen three-quarter on
-      // and the tiger crosses the frame as it sets off.
-      const T = this.#tigerAt(0).p
-      const d0 = this.route.getTangentAt(0.001).setY(0).normalize()
-      const s0 = new THREE.Vector3(-d0.z, 0, d0.x)
-      const close = {
-        pos: T.clone().addScaledVector(d0, 7).addScaledVector(s0, 15).setY(T.y + 3.8),
-        look: p.clone().addScaledVector(d, 2).setY(p.y + 2.2),
-      }
-      // The camera climbs away first; its eyes stay on the running tiger a
-      // little longer before turning to the road ahead.
-      const k = THREE.MathUtils.smootherstep(this.u, 0.03, 0.06)
-      const kl = THREE.MathUtils.smootherstep(this.u, 0.03, 0.055)
-      pose = { pos: close.pos.lerp(pose.pos, k), look: close.look.lerp(pose.look, kl) }
-    }
+    this.#updateTiger(dt)
+    const sch = this.#schedule(this.u)
+    this.cut = this.free ? 0 : sch.cut
+    this.shotK = sch.map ? 0 : sch.k
+    // A new shot snaps straight to its first frame (under the dip to black).
+    if (this.shot !== this.lastShot) ((this.lastShot = this.shot), (this.placed = false))
+    // How much of the illustrated map is showing (route ribbon, pins).
+    this.map = this.free ? 0 : 1 - THREE.MathUtils.smoothstep(this.u, SHOWS_START * 0.75, SHOWS_START + 0.02)
+    // The map's road line goes before the view reaches the ground.
+    if (this.ribbon) this.ribbon.material.uniforms.uOpacity.value = THREE.MathUtils.smoothstep(this.map, 0.55, 0.95)
+    // From afar, clear air: every hall reads, right out to the edge of campus.
+    const focus = Math.max(this.map, this.overview ?? 0)
+    FOCUS.value = focus
+    this.scene.fog.near = 700 + focus * 1600
+    this.scene.fog.far = 3600 + focus * 1500
     if (this.free && Math.abs(this.progress - this.free.progress) > 0.004) this.exitFree()
     if (this.free) {
       const f = this.free
@@ -1525,6 +2289,7 @@ export class AnamFlight {
       pose = { pos: pose.pos.clone().add(new THREE.Vector3(0, intro * intro * 420, intro * 160)), look: pose.look }
       this.placed = false
     }
+    if (import.meta.env.DEV && this.debugCam) ((pose = this.debugCam), (this.placed = false))
     // Low-pass the pose so nothing snaps: position, aim and roll.
     const a = 1 - Math.exp(-dt * 6)
     if (!this.placed) {
@@ -1539,12 +2304,13 @@ export class AnamFlight {
     this.aim.lookAt(this.look)
     this.camQ ??= this.aim.quaternion.clone()
     this.camQ.slerp(this.aim.quaternion, 1 - Math.exp(-dt * 5))
-    this.roll = (this.roll ?? 0) + ((this.free ? 0 : -this.mouse.x * 0.06) - (this.roll ?? 0)) * (1 - Math.exp(-dt * 3))
+    this.roll = (this.roll ?? 0) + ((this.free ? 0 : -this.mouse.x * 0.03) - (this.roll ?? 0)) * (1 - Math.exp(-dt * 3))
     // Speed: the view widens and shivers as the flight rushes.
     const moved = this.lastPos ? this.camera.position.distanceTo(this.lastPos) : 0
     ;(this.lastPos ??= new THREE.Vector3()).copy(this.camera.position)
     this.speed += (Math.min(600, moved / Math.max(dt, 1e-3)) - this.speed) * (1 - Math.exp(-dt * 4))
-    this.rush = THREE.MathUtils.clamp((this.speed - 20) / 200, 0, 1)
+    // Only the long glides between landmarks feel fast, and only a little.
+    this.rush = THREE.MathUtils.clamp((this.speed - 120) / 500, 0, 0.35)
     const shiver = Math.sin(this.time * 31) * Math.sin(this.time * 17) * 0.006 * this.rush
     this.camera.quaternion.copy(this.camQ).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.roll + shiver))
     const fov = (this.portrait ? 74 : 58) + this.rush * 16
@@ -1552,61 +2318,95 @@ export class AnamFlight {
       this.camera.fov = fov
       this.camera.updateProjectionMatrix()
     }
-    const night = THREE.MathUtils.smoothstep(this.u, 0.35, 0.96)
+    // The whole film is a night on campus: moonlight, lit windows, lamps.
+    const night = 1
     if (this.sky && Math.abs(night - NIGHT.value) > 0.002) this.#setNight(night)
 
-    // Sun and its shadow box follow what we look at.
-    this.sun.target.position.copy(this.look)
-    this.sun.position.copy(this.look).addScaledVector(this.lightDir, 900)
-    // Sharp shadows at road level, a wide box for the overview.
-    const box = Math.round(THREE.MathUtils.lerp(120, 330, Math.max(this.overview ?? 0, this.free ? 1 : 0)) / 10) * 10
+    // Shadows over the whole showcase view, a wider box from afar.
+    const box = Math.round(THREE.MathUtils.lerp(220, 360, Math.max(this.overview ?? 0, this.map ?? 0, this.free ? 1 : 0)) / 10) * 10
     const sc = this.sun.shadow.camera
     if (sc.right !== box) ((sc.left = sc.bottom = -box), (sc.right = sc.top = box), sc.updateProjectionMatrix())
-
-    this.#updatePaws(dt)
-    this.#updateTiger(dt)
-    for (const t of this.targets) {
-      const d = t.u - this.u
-      t.near = this.free ? 0 : Math.max(0, d >= 0 ? 1 - d / 0.08 : 1 + d / 0.03)
-      if (t.box) t.box.material.opacity = t.near * 0.9
+    // Sun and its shadow box follow what we look at, snapped to whole shadow
+    // texels (in the light's own frame) so shadow edges never crawl.
+    {
+      const d = this.lightDir
+      const right = new THREE.Vector3(0, 1, 0).cross(d).normalize()
+      const upL = d.clone().cross(right)
+      const texel = (2 * box) / this.sun.shadow.mapSize.x
+      const a = Math.round(this.look.dot(right) / texel) * texel
+      const b = Math.round(this.look.dot(upL) / texel) * texel
+      const c = this.look.dot(d)
+      const focus = right.multiplyScalar(a).addScaledVector(upL, b).addScaledVector(d, c)
+      this.sun.target.position.copy(focus)
+      this.sun.position.copy(focus).addScaledVector(d, 900)
     }
+    // Depth precision where it is needed: from high over the campus the near
+    // plane moves out, so roofs and walls never fight (and flicker).
+    const near = THREE.MathUtils.lerp(0.5, 8, Math.max(this.map ?? 0, this.overview ?? 0))
+    if (Math.abs(near - this.camera.near) > 0.05) ((this.camera.near = near), this.camera.updateProjectionMatrix())
+
+    this.#updatePaws()
+    this.students?.update(dt, this.tiger.group.position)
+    this.animeSky.update(dt, this.camera, this.sunDir, NIGHT.value)
+    // Storybook finish and golden motes during the building shots.
+    const story = this.free || sch.map ? 0 : 1 - sch.up
+    this.grade.uniforms.uStory.value += (story - this.grade.uniforms.uStory.value) * Math.min(1, dt * 3)
+    if (this.sparkles && this.shows && !sch.map) {
+      const sh = this.shows[sch.i].shot
+      this.sparkU.uC.value.set(sh.cx, sh.base, sh.cz)
+      this.sparkU.uR.value = Math.max(30, sh.R * 0.9)
+      this.sparkU.uH.value = Math.max(18, sh.hl * 2.4)
+    }
+    this.sparkU.uTime.value = this.time
+    this.sparkU.uPx.value = this.renderer.getPixelRatio()
+    this.sparkU.uA.value = this.grade.uniforms.uStory.value * (1 - NIGHT.value * 0.3)
+    // The landmark in shot: on through the shot, easing in and out at the cuts.
+    for (const t of this.targets) t.near = 0
+    if (this.shows && !this.free && !sch.map && sch.up < 0.3)
+      this.shows[sch.i].near = THREE.MathUtils.smoothstep(sch.k, 0.06, 0.18) * (sch.i === this.shows.length - 1 ? 1 : 1 - THREE.MathUtils.smoothstep(sch.k, 0.9, 0.97)) * (1 - sch.up / 0.3)
     this.bloom.strength = 0.25 + NIGHT.value * 0.55
     this.#adapt(dt)
     this.composer.render()
   }
 
-  // The opening: the camera waits beside the tiger at the main gate; the
-  // first scroll makes it roar, then it bolts up the road and the camera
-  // follows, climbing into the flight. After that it leads the way just
-  // ahead of the camera, on its own pawprint trail.
+  // The mascot: in each shot the tiger stands on the road in front of the
+  // hall, three-quarter on to the camera, breathing (its own idle clip; no
+  // walking, so nothing to look awkward). At the 호상 it sits by the bronze.
   #tigerAt(u) {
-    const t = this.#routeT(u)
-    const p = this.route.getPointAt(Math.min(0.999, t))
-    const d = this.route.getTangentAt(Math.min(0.999, t)).setY(0).normalize()
+    const { i, map } = this.#schedule(u)
+    const S = this.shows
+    if (!S || map) {
+      const p = this.route.getPointAt(0.0005)
+      p.y = this.groundAt(p.x, p.z)
+      return { p, d: this.route.getTangentAt(0.0005).setY(0).normalize(), hide: true }
+    }
+    const t = S[i]
+    if (t.key === 'tiger' && this.statue) {
+      const g = this.statue
+      const a = g.rotation.y
+      // The bronze has the shot to itself.
+      return { p: g.position.clone(), d: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)), hide: true }
+    }
+    // On the road nearest the hall, facing between the hall and the camera.
+    const p = this.route.getPointAt(t.routeU)
     p.y = this.groundAt(p.x, p.z)
-    return { t, p, d }
+    const mid = (t.shot.a0 + t.shot.a1) / 2
+    const cam = new THREE.Vector3(t.shot.cx + Math.sin(mid) * t.shot.R, 0, t.shot.cz + Math.cos(mid) * t.shot.R)
+    const toCam = cam.sub(p).setY(0).normalize()
+    const toHall = new THREE.Vector3(t.shot.cx - p.x, 0, t.shot.cz - p.z).normalize()
+    return { p, d: toCam.lerp(toHall, 0.45).normalize() }
   }
 
   #updateTiger(dt) {
-    if (!this.route || this.free) return this.tiger.update(dt, this.tiger.group.position, this.tigerDir ?? new THREE.Vector3(0, 0, 1), 0)
-    const { t, p, d } = this.#tigerAt(this.u)
+    if (!this.route) return
+    const { p, d, hide } = this.#tigerAt(this.u)
     this.tigerDir = d
-    const roar = THREE.MathUtils.smoothstep(this.u, 0.006, 0.012) * (1 - THREE.MathUtils.smoothstep(this.u, 0.022, TIGER_RUN))
-    // The roar sounds once each time the scroll carries past it.
-    if (roar > 0.6 && !this.roared) ((this.roared = true), this.onRoar?.())
-    if (this.u < 0.004) this.roared = false
-    // Running speed follows how fast the route is being covered.
-    const pace = this.lastTigerT === undefined ? 0 : (Math.abs(t - this.lastTigerT) * this.route.getLength()) / Math.max(dt, 1e-3)
-    this.lastTigerT = t
-    this.tigerPace = (this.tigerPace ?? 0) + (pace - (this.tigerPace ?? 0)) * Math.min(1, dt * 3)
-    this.tiger.update(dt, p, d, this.tigerPace, roar)
+    this.tiger.update(dt, p, d, 0, 0)
+    if (this.tiger.ready) this.tiger.group.visible = !hide
   }
 
-  #updatePaws(dt) {
-    if (this.beacon) this.beacon.material.opacity = 0.25 + 0.12 * Math.sin(this.time * 2.4)
-    if (!this.paws) return
-    const m = this.paws.material.uniforms
-    m.uTime.value = this.time
-    m.uHead.value = this.free ? 1 : this.route ? this.#tigerAt(this.u).t : 0
+  #updatePaws() {
+    // The film has no trail of prints; the map's road line marks the way.
+    if (this.paws) this.paws.visible = false
   }
 }

@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { Crowd } from './crowd.js'
+import { Stage } from './stage.js'
 
 // The Crimson Core: a faceted ruby heart beating in the dark. Every pump
 // (Space, click, tap) swells it, fires a ring of lava embers and a drum hit,
@@ -148,8 +149,11 @@ export class Heart {
     this.scene.add(this.embers)
     this.next = 0
 
-    // The crowd on the field below the heart.
+    // The crowd on the field, and the stage they face at its far end.
     this.crowd = new Crowd(this.scene, mobile)
+    this.stage = new Stage(this.scene, mobile)
+    // The heart now lives on the LED wall's glow; the stage is the show.
+    this.heart.visible = false
 
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
@@ -192,6 +196,12 @@ export class Heart {
     n.start(t)
   }
 
+  // The act now on stage (null between acts).
+  setAct(act) {
+    this.stage.setAct(act)
+    this.performing = !!act
+  }
+
   pump() {
     this.pulse = 1
     this.beats++
@@ -205,7 +215,8 @@ export class Heart {
       const th = Math.random() * Math.PI * 2
       const ph = Math.acos(Math.random() * 2 - 1)
       const dir = new THREE.Vector3().setFromSphericalCoords(1, ph, th)
-      this.pos.set([dir.x * 1.4, dir.y * 1.4, dir.z * 1.4], i * 3)
+      // Sparks fly up off the front of the stage.
+      this.pos.set([dir.x * 6, -1.2 + Math.abs(dir.y) * 0.5, -22.5 + dir.z * 0.5], i * 3)
       const sp = 2.5 + Math.random() * (3 + this.energy * 6)
       this.vel.set([dir.x * sp, dir.y * sp + 1.2, dir.z * sp], i * 3)
       this.life[i] = 1
@@ -219,10 +230,12 @@ export class Heart {
     this.renderer.setSize(w, h, false)
     this.composer.setSize(w, h)
     this.camera.aspect = w / h
-    // Looking slightly down: the heart over a field of people.
+    // From the back of the crowd, over their heads, to the stage.
     const portrait = w / h < 0.8
-    this.camera.position.set(0, portrait ? -0.2 : -0.4, portrait ? 17 : 11.5)
-    this.camera.lookAt(0, portrait ? -0.3 : -0.5, 0)
+    this.camera.fov = portrait ? 46 : 30
+    this.camera.position.set(0, portrait ? 2.2 : 1.6, portrait ? 4 : 2)
+    this.camera.lookAt(0, portrait ? 1.6 : 1.2, -27)
+    this.camBase = { pos: this.camera.position.clone(), lookY: portrait ? 1.6 : 1.2, portrait }
     this.camera.updateProjectionMatrix()
     this.crowd.setSize(170 * this.renderer.getPixelRatio() * (h / 900))
   }
@@ -241,7 +254,7 @@ export class Heart {
     this.core.material.opacity = 0.3 + this.pulse * 0.5
     this.coreLight.intensity = 25 + this.pulse * 60 + this.energy * 30
     this.edges.material.opacity = 0.22 + this.pulse * 0.4
-    this.bloom.strength = 0.55 + this.pulse * 0.45 + this.energy * 0.3
+    this.bloom.strength = 0.3 + this.pulse * 0.25 + this.energy * 0.12
 
     for (let i = 0; i < EMBERS; i++) {
       if (this.life[i] <= 0) continue
@@ -257,7 +270,25 @@ export class Heart {
     }
     this.embers.geometry.attributes.position.needsUpdate = true
     this.embers.geometry.attributes.aLife.needsUpdate = true
+    // While an act is on, the crowd moves to the beat on its own and the
+    // energy stays high.
+    if (this.performing) {
+      this.energy = Math.max(this.energy, 0.65)
+      this.beatT = (this.beatT ?? 0) + dt
+      if (this.beatT > 0.5) ((this.beatT = 0), this.crowd.pump(this.time))
+    }
+    this.stage.update(dt, this.energy)
     this.crowd.update(this.time, this.energy)
+    // A camera on a crane over the crowd: it pushes slowly in toward the
+    // stage and back, drifting side to side, so the stage reads in depth.
+    if (this.camBase) {
+      const b = this.camBase
+      const k = 0.5 - 0.5 * Math.cos(this.time * 0.09)
+      const sway = Math.sin(this.time * 0.13) * (b.portrait ? 1.2 : 3)
+      this.camera.position.set(b.pos.x + sway, b.pos.y + k * 0.9, b.pos.z - k * (b.portrait ? 6 : 10))
+      this.camera.lookAt(sway * 0.25, b.lookY + k * 0.7, -27)
+    }
+    this.stage.renderLive(this.renderer, this.scene)
     this.composer.render()
   }
 }
