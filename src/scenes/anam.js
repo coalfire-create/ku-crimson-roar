@@ -332,6 +332,7 @@ export class AnamFlight {
     this.#buildStatue()
     this.#buildGate()
     this.#buildLamps()
+    this.#buildInchon()
     this.#buildSparkles()
     // Resolves once the relief and everything placed on it are in.
     this.terrainReady = this.#loadTerrain()
@@ -642,6 +643,7 @@ export class AnamFlight {
     for (const t of this.targets) if (t.key) t.anchor.y = this.groundAt(t.anchor.x, t.anchor.z) + t.lift
     if (this.statue) this.statue.position.y = this.groundAt(this.statue.position.x, this.statue.position.z)
     if (this.gate) this.gate.position.y = this.groundAt(this.gate.position.x, this.gate.position.z)
+    if (this.inchon) this.inchon.position.y = this.groundAt(this.inchon.position.x, this.inchon.position.z)
     this.#placeLamps()
     this.#placeBronze()
     this.#buildClearance()
@@ -1231,6 +1233,48 @@ export class AnamFlight {
           const m = mansard(P, Math.min(4.5, o.W * 0.3), top, Math.min(4, rh))
           add(m.slope, BST.slate, seed, base, top, P)
           add(m.cap, s, seed, base, top, m.inner)
+        }
+        if (b.n === '일반대학원') {
+          // The old 중앙도서관 (1937, 사적 제286호): a square clock tower at
+          // one end of the front, a clock on each of its four faces, and an
+          // octagonal lantern with a small cupola and finial on top.
+          const tw = Math.min(8, o.W * 0.6)
+          const tTop = base + b.h * 1.55
+          const m = new THREE.Matrix4().makeRotationY(-o.a).setPosition(o.cx, 0, o.cz)
+          const off = o.L / 2 - tw / 2 - 1.5
+          const sq = (h) => [[-h, -h], [h, -h], [h, h], [-h, h], [-h, -h]].map(([x, z]) => new THREE.Vector3(x + off, 0, z).applyMatrix4(m)).map((v) => [v.x, v.z])
+          const shaft = sq(tw / 2)
+          add(prism(shaft, top - 1, tTop), STYLE.g, seed, base, tTop, shaft)
+          const band = offsetPoly(shaft, 0.35)
+          add(prism(band, tTop - 0.2, tTop + 0.5), BST.trim, seed, base, tTop, band)
+          const at = (lx, y, lz) => new THREE.Vector3(lx + off, y, lz).applyMatrix4(m)
+          const lantern = new THREE.CylinderGeometry(tw * 0.32, tw * 0.36, 3.2, 8)
+          lantern.translate(0, 0, 0)
+          lantern.applyMatrix4(new THREE.Matrix4().makeTranslation(at(0, tTop + 2.1, 0)))
+          add(lantern, BST.trim, seed, base, tTop, band)
+          const dome = new THREE.SphereGeometry(tw * 0.34, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)
+          dome.applyMatrix4(new THREE.Matrix4().makeTranslation(at(0, tTop + 3.7, 0)))
+          add(dome, BST.slate, seed, base, tTop, band)
+          const fin = new THREE.ConeGeometry(0.18, 2.2, 6)
+          fin.applyMatrix4(new THREE.Matrix4().makeTranslation(at(0, tTop + 3.7 + tw * 0.34 + 1.0, 0)))
+          add(fin, BST.trim, seed, base, tTop, band)
+          // The four clock faces, pale and lit from within at night.
+          this.clockFaces ??= []
+          for (let k = 0; k < 4; k++) {
+            const ang = (k * Math.PI) / 2
+            const face = new THREE.Group()
+            face.position.copy(at(Math.sin(ang) * (tw / 2 + 0.06), tTop - 2.6, Math.cos(ang) * (tw / 2 + 0.06)))
+            face.rotation.y = -o.a + ang
+            const dial = new THREE.Mesh(new THREE.CircleGeometry(tw * 0.24, 32), new THREE.MeshBasicMaterial({ color: '#fff2d6' }))
+            const rim = new THREE.Mesh(new THREE.RingGeometry(tw * 0.24, tw * 0.28, 32), new THREE.MeshBasicMaterial({ color: '#3a3430' }))
+            const hand = (len, a2) => {
+              const h = new THREE.Mesh(new THREE.PlaneGeometry(0.16, len).translate(0, len / 2, 0.02), new THREE.MeshBasicMaterial({ color: '#2a2420' }))
+              h.rotation.z = a2
+              return h
+            }
+            face.add(dial, rim, hand(tw * 0.15, Math.PI / 3), hand(tw * 0.21, -Math.PI / 3))
+            this.scene.add(face)
+          }
         }
         if (TOWERS.test(b.n)) {
           const tw = Math.min(11, o.W * 0.7)
@@ -1975,6 +2019,39 @@ export class AnamFlight {
     }
   }
 
+  // The statue of 인촌 김성수 in front of 본관, as in every photograph of
+  // it: a standing bronze figure in a long coat on a tall granite pedestal.
+  #buildInchon() {
+    const L = DATA.landmarks.inchonStatue
+    if (!L) return
+    const g = new THREE.Group()
+    const stone = new THREE.MeshStandardMaterial({ color: '#cfc9bf', roughness: 0.85 })
+    const bronze = new THREE.MeshStandardMaterial({ color: '#4a3b2a', metalness: 0.7, roughness: 0.4 })
+    const ped = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.4, 2.6), stone)
+    ped.position.y = 1.7
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.35, 3.0), stone)
+    cap.position.y = 3.55
+    const coat = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.62, 2.3, 16), bronze)
+    coat.position.y = 3.7 + 1.15
+    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.42, 0.7, 16), bronze)
+    chest.position.y = 3.7 + 2.55
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 16, 12), bronze)
+    head.position.y = 3.7 + 3.15
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 1.0, 4, 8), bronze)
+      arm.position.set(side * 0.55, 3.7 + 2.0, 0)
+      arm.rotation.z = side * 0.08
+      g.add(arm)
+    }
+    for (const m of [ped, cap, coat, chest, head]) ((m.castShadow = m.receiveShadow = true), g.add(m))
+    g.position.set(L[0], this.groundAt(L[0], L[1]), L[1])
+    // Facing away from 본관, out over the plaza.
+    const mh = DATA.buildings.filter((x) => x.n === '본관').map((x) => obb(x.p))[0]
+    if (mh) g.rotation.y = Math.atan2(L[0] - mh.cx, L[1] - mh.cz)
+    this.inchon = g
+    this.scene.add(g)
+  }
+
   #placeBronze() {
     if (!this.bronze?.ready || !this.statue) return
     const g = this.statue
@@ -2170,7 +2247,7 @@ export class AnamFlight {
     this.look ??= new THREE.Vector3()
 
     let pose = this.#tourPose(this.u)
-    this.#updateTiger(dt)
+    this.#updateTiger()
     const sch = this.#schedule(this.u)
     this.cut = this.free ? 0 : sch.cut
     this.shotK = sch.map ? 0 : sch.k
@@ -2270,7 +2347,7 @@ export class AnamFlight {
     if (Math.abs(near - this.camera.near) > 0.05) ((this.camera.near = near), this.camera.updateProjectionMatrix())
 
     this.#updatePaws()
-    this.students?.update(dt, this.tiger.group.position)
+    this.students?.update(dt, null)
     this.animeSky.update(dt, this.camera, this.sunDir, NIGHT.value)
     // Storybook finish and golden motes during the building shots.
     const story = this.free || sch.map ? 0 : 1 - sch.up
@@ -2321,12 +2398,10 @@ export class AnamFlight {
     return { p, d: toCam.lerp(toHall, 0.45).normalize() }
   }
 
-  #updateTiger(dt) {
-    if (!this.route) return
-    const { p, d, hide } = this.#tigerAt(this.u)
-    this.tigerDir = d
-    this.tiger.update(dt, p, d, 0, 0)
-    if (this.tiger.ready) this.tiger.group.visible = !hide
+  #updateTiger() {
+    // The campus film no longer has a mascot standing in its shots: the
+    // buildings have the frame to themselves.
+    if (this.tiger?.ready) this.tiger.group.visible = false
   }
 
   #updatePaws() {

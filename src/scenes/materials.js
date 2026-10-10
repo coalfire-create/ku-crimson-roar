@@ -340,6 +340,12 @@ const buildingChunks = {
   emissive: /* glsl */ `
     totalEmissiveRadiance += glassRefl;
     totalEmissiveRadiance += litC * lit * (0.12 + uNight * 1.7);
+    // At night the campus's granite halls are floodlit from below, as 본관
+    // is: a warm wash strongest at the foot of the wall, fading up it.
+    {
+      float upl = step(0.5, vC) * step(0.5, isWall) * step(0.5, bStyle) * step(bStyle, 1.5);
+      totalEmissiveRadiance += wall * vec3(1.0, 0.62, 0.32) * upl * uNight * (0.1 + 0.6 * exp(-hgt * 0.11));
+    }
   `,
 }
 
@@ -360,7 +366,7 @@ export function buildingMaterial() {
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + buildingChunks.normal)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + buildingChunks.emissive)
   }
-  mat.customProgramCacheKey = () => 'ku-building-4'
+  mat.customProgramCacheKey = () => 'ku-building-5'
   return mat
 }
 
