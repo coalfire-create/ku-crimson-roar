@@ -252,7 +252,8 @@ export class Gate {
   #buildStage(mobile) {
     const st = (this.stage = new THREE.Group())
     st.position.z = -16
-    // Dawn sky: deep crimson overhead to a burning gold horizon.
+    // Night over 안암: deep blue overhead, stars, and a crimson glow low on
+    // the horizon where the city and the crowd's lights rise.
     this.skyU = { uK: { value: 0 } }
     const sky = new THREE.Mesh(
       new THREE.PlaneGeometry(400, 160),
@@ -262,10 +263,13 @@ export class Gate {
         fragmentShader: `uniform float uK; varying vec2 vUv;
           void main(){
             float h = vUv.y;
-            vec3 top = vec3(0.12, 0.02, 0.05), mid = vec3(0.6, 0.08, 0.12), hor = vec3(1.0, 0.62, 0.25);
-            vec3 c = mix(hor, mid, smoothstep(0.12, 0.35, h));
-            c = mix(c, top, smoothstep(0.35, 0.8, h));
-            c += vec3(1.0, 0.7, 0.35) * exp(-pow((vUv.x - 0.5) * 6.0, 2.0) - pow((h - 0.14) * 9.0, 2.0)) * 0.8;
+            vec3 top = vec3(0.012, 0.016, 0.05), mid = vec3(0.05, 0.03, 0.09), hor = vec3(0.36, 0.05, 0.1);
+            vec3 c = mix(hor, mid, smoothstep(0.1, 0.32, h));
+            c = mix(c, top, smoothstep(0.32, 0.8, h));
+            c += vec3(0.9, 0.2, 0.25) * exp(-pow((vUv.x - 0.5) * 3.0, 2.0) - pow((h - 0.12) * 8.0, 2.0)) * 0.35;
+            vec2 q = floor(vUv * vec2(900.0, 360.0));
+            float r = fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453);
+            c += step(0.9965, r) * smoothstep(0.3, 0.7, h) * 0.9;
             gl_FragColor = vec4(c * uK, 1.0);
           }`,
         depthWrite: false,
@@ -274,7 +278,7 @@ export class Gate {
     sky.position.set(0, 60, -170)
     sky.scale.setScalar(1.6)
     st.add(sky)
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 120), new THREE.MeshStandardMaterial({ color: '#2a1414', roughness: 1 }))
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 120), new THREE.MeshStandardMaterial({ color: '#0b0909', roughness: 0.95 }))
     ground.rotation.x = -Math.PI / 2
     ground.position.z = -60
     ground.scale.set(1.5, 2, 1)
@@ -348,7 +352,8 @@ export class Gate {
       return new THREE.ShapeGeometry(s, 6)
     }
     const wins = []
-    const win = (w, h, x, y, z) => wins.push(lancet(w, h).translate(x, y, z))
+    // Rectangular stone-framed windows, as on the real 본관.
+    const win = (w, h, x, y, z) => wins.push(new THREE.PlaneGeometry(w, h).translate(x, y + h / 2, z))
     const crenel = (w, x, y, z, n) => {
       for (let k = 0; k < n; k++) box(w / n / 1.8, 1.1, 0.6, x - w / 2 + (w / n) * (k + 0.5), y + 0.55, z)
     }
@@ -388,20 +393,22 @@ export class Gate {
       const t = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.5, 44, 8), stone)
       t.position.set(cx, 22, cz)
       hall.add(t)
-      const cap = new THREE.Mesh(new THREE.ConeGeometry(1.7, 6, 8), slate)
-      cap.position.set(cx, 47, cz)
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.75, 1.75, 1.3, 8), stone)
+      cap.position.set(cx, 44.6, cz)
       hall.add(cap)
     }
-    // Entrance arch, the great window over it, the clock.
-    win(4.2, 8, 0, 0, 10.03)
-    win(3.4, 8.5, 0, 17, 10.03)
-    for (const dx of [-3.2, 3.2]) win(1.2, 4.5, dx, 29.5, 10.03)
-    const clock = new THREE.Mesh(new THREE.CircleGeometry(2.4, 40), new THREE.MeshBasicMaterial({ color: '#fff0c8' }))
-    clock.position.set(0, 33.6, 10.05)
-    hall.add(clock)
-    const ring = new THREE.Mesh(new THREE.RingGeometry(2.4, 2.8, 40), trim)
-    ring.position.set(0, 33.6, 10.04)
-    hall.add(ring)
+    // The entrance arch, then floor upon floor of paired windows up the
+    // tower (no clock: that is the old library's), and two flags on top.
+    wins.push(lancet(4.2, 8).translate(0, 0, 10.03))
+    for (let fl = 0; fl < 6; fl++) for (const dx of [-2.6, 2.6]) win(1.6, 3.0, dx, 10 + fl * 4.6, 10.03)
+    for (const [fx, col] of [[-2.5, '#f4f1ea'], [2.5, '#b5122a']]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 7, 8), trim)
+      pole.position.set(fx, 42.5, 3)
+      hall.add(pole)
+      const flag = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.6), new THREE.MeshStandardMaterial({ color: col, side: THREE.DoubleSide }))
+      flag.position.set(fx + 1.35, 45, 3)
+      hall.add(flag)
+    }
     // Merge every window into one glowing mesh.
     const wg = new THREE.BufferGeometry()
     {
@@ -413,47 +420,19 @@ export class Gate {
       wg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
     }
     hall.add(new THREE.Mesh(wg, glow))
-    hall.position.set(0, 0, -95)
+    hall.position.set(0, 0, -150)
     hall.scale.setScalar(1.3)
     st.add(hall)
-    // The rock the tiger stands on: a weathered granite outcrop, smooth-
-    // shouldered, with darker cracks and a lit top edge.
-    const rg = mergeVertices(new THREE.IcosahedronGeometry(3.2, 5))
-    {
-      const p = rg.attributes.position
-      const v = new THREE.Vector3()
-      const n3 = (x, y, z) => Math.sin(x * 1.7 + Math.sin(z * 1.3)) * Math.cos(y * 1.9 + x) + Math.sin(z * 2.3 + y * 0.7) * 0.5
-      const col = new Float32Array(p.count * 3)
-      const ca = new THREE.Color('#6a5a50')
-      const cb = new THREE.Color('#2e2622')
-      const cc = new THREE.Color()
-      for (let i = 0; i < p.count; i++) {
-        v.fromBufferAttribute(p, i)
-        const fine = n3(v.x * 2, v.y * 2, v.z * 2)
-        const d = 1 + n3(v.x * 0.6, v.y * 0.6, v.z * 0.6) * 0.12 + fine * 0.04
-        // Weathered: paler on the bosses, dark in the cracks, lichen here and there.
-        cc.lerpColors(cb, ca, THREE.MathUtils.clamp(0.5 + fine * 0.6 + v.y * 0.08, 0, 1))
-        if (n3(v.x * 3.1, v.z * 2.7, v.y) > 1.05) cc.lerp(new THREE.Color('#6f7448'), 0.5)
-        col.set([cc.r, cc.g, cc.b], i * 3)
-        v.multiplyScalar(d)
-        if (v.y > 1.7) v.y = 1.7 + (v.y - 1.7) * 0.4 // a flatter top to stand on
-        p.setXYZ(i, v.x, v.y, v.z)
-      }
-      rg.setAttribute('color', new THREE.BufferAttribute(col, 3))
-      rg.computeVertexNormals()
+    // The tiger stands on the granite terrace in front of the crowd, as if
+    // on 본관's front steps, looking out over them.
+    const terraceM = new THREE.MeshStandardMaterial({ color: '#3d3836', roughness: 0.85 })
+    const rock = new THREE.Group()
+    for (const [w, h, d, y] of [[13, 1.0, 7.5, 0.5], [10, 1.0, 6, 1.5], [7, 1.1, 4.4, 2.55]]) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), terraceM)
+      b.position.y = y
+      rock.add(b)
     }
-    const rockM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 })
-    const rock = new THREE.Mesh(rg, rockM)
-    // Smaller boulders tumbled at its foot.
-    for (const [bx, bz, bs] of [[-6.5, 1.5, 0.45], [5.8, 2.2, 0.38], [7.5, -1.5, 0.3], [-8, -2.5, 0.32]]) {
-      const b = new THREE.Mesh(rg, rockM)
-      b.scale.set(bs * 1.4, bs, bs * 1.2)
-      b.rotation.y = bx
-      b.position.set(bx, bs * 1.2, bz - 2)
-      st.add(b)
-    }
-    rock.scale.set(2.1, 1.0, 1.5)
-    rock.position.set(0, 0.95, -2)
+    rock.position.set(-7, 0, -2)
     st.add(rock)
     // Beams of light behind, sweeping.
     this.beams = []
@@ -466,46 +445,61 @@ export class Gate {
       st.add(b)
       this.beams.push(b)
     }
-    // The school's banners either side, the shield on each, waving.
-    const emblemTex = new THREE.Texture(EMBLEM)
-    emblemTex.colorSpace = THREE.SRGBColorSpace
-    const ready = () => (emblemTex.needsUpdate = true)
-    if (EMBLEM.complete && EMBLEM.naturalWidth) ready()
-    else EMBLEM.addEventListener('load', ready, { once: true })
-    this.flagU = { uTime: { value: 0 }, uEmblem: { value: emblemTex } }
-    for (const s of [-1, 1])
-      for (const k of [0, 1]) {
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 16, 8), new THREE.MeshStandardMaterial({ color: '#c9a45a', metalness: 0.8, roughness: 0.3 }))
-        const x = s * (14 + k * 9)
-        pole.position.set(x, 8, -14 - k * 10)
-        st.add(pole)
-        const flag = new THREE.Mesh(
-          new THREE.PlaneGeometry(3.4, 8, 12, 12),
-          new THREE.ShaderMaterial({
-            uniforms: this.flagU,
-            vertexShader: `uniform float uTime; varying vec2 vUv; varying float vWave;
-              void main(){ vUv = uv; vec3 p = position;
-                vWave = sin(p.y * 0.9 + uTime * 3.0 + p.x);
-                p.z += vWave * 0.35 * uv.x;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
-            fragmentShader: `uniform sampler2D uEmblem; varying vec2 vUv; varying float vWave;
-              void main(){
-                vec3 c = vec3(0.6, 0.05, 0.12);
-                c = mix(c, vec3(0.95, 0.78, 0.4), step(0.93, vUv.y) + step(vUv.y, 0.04));
-                // The shield, centred on the upper banner.
-                vec2 e = (vUv - vec2(0.5, 0.6)) / vec2(0.62, 0.35) + 0.5;
-                if (e.x > 0.0 && e.x < 1.0 && e.y > 0.0 && e.y < 1.0) {
-                  vec4 em = texture2D(uEmblem, e);
-                  c = mix(c, em.rgb, em.a);
-                }
-                gl_FragColor = vec4(c * (0.8 + 0.25 * vWave * vUv.x), 1.0);
-              }`,
-            side: THREE.DoubleSide,
-          }),
-        )
-        flag.position.set(x + s * 1.8, 11, -14 - k * 10)
-        st.add(flag)
-      }
+    // The crowd: thousands of students filling 중앙광장 between the terrace
+    // and 본관, each holding up a phone light. They sway; a wave runs through
+    // them; at the end every light turns crimson and rises.
+    const CN2 = mobile ? 3500 : 8000
+    const cp = new Float32Array(CN2 * 3)
+    const cs = new Float32Array(CN2)
+    for (let i = 0; i < CN2; i++) {
+      const z = -10 - Math.random() * 110
+      const half = 16 + (-z) * 0.4
+      cp.set([(Math.random() - 0.5) * 2 * half, 1.5 + Math.random() * 0.5, z], i * 3)
+      cs[i] = Math.random()
+    }
+    const cg = new THREE.BufferGeometry()
+    cg.setAttribute('position', new THREE.BufferAttribute(cp, 3))
+    cg.setAttribute('aSeed', new THREE.BufferAttribute(cs, 1))
+    this.crowdU = { uTime: { value: 0 }, uWave: { value: 0 }, uCrimson: { value: 0 }, uRaise: { value: 0 }, uOn: { value: 0 }, uPx: { value: this.renderer.getPixelRatio() } }
+    this.crowd = new THREE.Points(
+      cg,
+      new THREE.ShaderMaterial({
+        uniforms: this.crowdU,
+        vertexShader: `attribute float aSeed; uniform float uTime, uWave, uRaise, uPx; varying float vB; varying float vSeed;
+          void main(){
+            vec3 p = position;
+            p.x += sin(uTime * 1.6 + aSeed * 40.0) * 0.25;
+            float wave = 0.5 + 0.5 * sin(p.x * 0.12 - p.z * 0.05 - uTime * 3.2);
+            p.y += uRaise * (0.6 + aSeed * 0.6) + wave * uWave * 0.5;
+            vB = mix(0.55, 1.0, wave * uWave + (1.0 - uWave) * 0.8) * (0.75 + 0.25 * sin(uTime * 6.0 + aSeed * 90.0));
+            vSeed = aSeed;
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
+            gl_Position = projectionMatrix * mv;
+            gl_PointSize = uPx * (1.4 + aSeed) * 220.0 / -mv.z;
+          }`,
+        fragmentShader: `uniform float uCrimson, uOn; varying float vB; varying float vSeed;
+          void main(){
+            float d = length(gl_PointCoord - 0.5);
+            float a = smoothstep(0.5, 0.0, d);
+            float turned = step(vSeed, uCrimson * 1.05);
+            vec3 c = mix(vec3(1.0, 0.92, 0.78), vec3(1.0, 0.16, 0.26), turned);
+            gl_FragColor = vec4(c * vB * 2.2, a * a * uOn);
+          }`,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    )
+    this.crowd.frustumCulled = false
+    st.add(this.crowd)
+    // The students themselves: dark heads and shoulders under their lights.
+    const hg = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.22, 0.4, 3, 6), new THREE.MeshStandardMaterial({ color: '#0a0708', roughness: 1 }), Math.round(CN2 * 0.35))
+    const hm = new THREE.Matrix4()
+    for (let i = 0; i < hg.count; i++) {
+      hm.makeTranslation(cp[i * 3] + 0.15, 0.7, cp[i * 3 + 2])
+      hg.setMatrixAt(i, hm)
+    }
+    st.add(hg)
     // Sparks rising.
     const SN = mobile ? 400 : 1000
     const sp = new Float32Array(SN * 3)
@@ -607,9 +601,16 @@ export class Gate {
     this.skyU.uK.value = reveal
     this.stageKey.intensity = reveal * 2.6
     this.stageRim.intensity = reveal * 3.5
-    this.flagU.uTime.value = t
+    // The story (driven from the page after the letter): the crowd's lights
+    // come up, a wave runs through them, they turn crimson and rise.
+    const sto = this.story ?? 0
+    this.crowdU.uTime.value = t
+    this.crowdU.uOn.value = reveal
+    this.crowdU.uWave.value = S(sto, 0.25, 0.5)
+    this.crowdU.uCrimson.value = S(sto, 0.55, 0.85)
+    this.crowdU.uRaise.value = S(sto, 0.8, 0.95)
     this.beams.forEach((b) => {
-      b.material.opacity = reveal * 0.16 * (0.6 + 0.4 * Math.sin(t * 1.3 + b.userData.ph))
+      b.material.opacity = reveal * 0.05 * (0.6 + 0.4 * Math.sin(t * 1.3 + b.userData.ph))
       b.rotation.z = Math.sin(t * 0.35 + b.userData.ph) * 0.35
       b.rotation.x = -0.15
     })
@@ -622,14 +623,15 @@ export class Gate {
     // The tiger roars on arrival, and again every few seconds.
     if (this.tiger.ready) {
       const cycle = (t % 5) / 5
-      const roar = reveal > 0.6 ? S(cycle, 0, 0.06) * (1 - S(cycle, 0.4, 0.55)) : 0
+      // Quiet while the story is told; roaring with the crowd at its height.
+      const roar = sto > 0.82 ? S(cycle, 0, 0.06) * (1 - S(cycle, 0.4, 0.55)) : 0
       if (roar > 0.5 && !this.roared) ((this.roared = true), this.onRoar?.())
       if (roar < 0.1) this.roared = false
-      this.tiger.update(dt, new THREE.Vector3(0, 3.1, -18), new THREE.Vector3(0.35, 0, 1).normalize(), 0, roar)
+      this.tiger.update(dt, new THREE.Vector3(-7, 3.1, -18), new THREE.Vector3(0.55, 0, 1).normalize(), 0, roar)
       this.tiger.group.visible = reveal > 0.05
     }
     // Confetti falls once the letter is read.
-    const burst = S(p, 0.76, 0.82)
+    const burst = S(sto, 0.86, 0.95)
     this.confetti.visible = burst > 0
     if (this.confetti.visible) {
       this.bits.forEach((b, i) => {
@@ -644,12 +646,15 @@ export class Gate {
     this.embers.rotation.y = t * 0.02
     // Camera: close on the envelope; for the reveal it sinks low and looks up
     // at the tiger and the tower (a hero shot).
+    // After the letter: behind the tiger on the terrace, over the crowd to
+    // 본관; through the story the camera cranes slowly up and in.
     const low = S(p, 0.7, 0.95)
-    const camZ = THREE.MathUtils.lerp(this.portrait ? 8.5 : 6.2, this.portrait ? 9 : 16, low)
-    this.camera.position.set(this.mouse.x * 0.3 + (this.portrait ? 0 : -3.5 * low), THREE.MathUtils.lerp(0.15, 1.0, low) + this.mouse.y * 0.2, camZ)
-    // Phones: tiger high in the frame, clear of the title below it.
-    this.camera.lookAt(this.portrait ? 0 : -3.5 * low, THREE.MathUtils.lerp(0, this.portrait ? 3.2 : 7.5, low), THREE.MathUtils.lerp(0, -40, low))
-    this.bloom.strength = 0.25 + burst * 0.15 + reveal * 0.35
+    const crane = S(sto, 0, 1)
+    const camZ = THREE.MathUtils.lerp(this.portrait ? 8.5 : 6.2, THREE.MathUtils.lerp(this.portrait ? 9 : 8, this.portrait ? 4 : 2, crane), low)
+    const camY = THREE.MathUtils.lerp(0.15, THREE.MathUtils.lerp(5.5, 11, crane), low)
+    this.camera.position.set(this.mouse.x * 0.4 + (this.portrait ? -2 : 2) * low, camY + this.mouse.y * 0.2, camZ)
+    this.camera.lookAt((this.portrait ? -2.5 : 0) * low, THREE.MathUtils.lerp(0, THREE.MathUtils.lerp(6, 8, crane), low), THREE.MathUtils.lerp(0, -120, low))
+    this.bloom.strength = 0.25 + burst * 0.15 + reveal * 0.25 + this.crowdU.uCrimson.value * 0.2
     this.composer.render()
   }
 }

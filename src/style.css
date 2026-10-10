@@ -1272,7 +1272,8 @@ button.pill:not([class*='pill--']) {
 
 /* ---------- gate (finale) ---------- */
 .gate {
-  height: 380vh;
+  /* The letter, then the story over the crowd: a long, slow ending. */
+  height: 760vh;
 }
 .gate .scene__sticky {
   background: #140609;
@@ -1295,9 +1296,9 @@ button.pill:not([class*='pill--']) {
 }
 .gate__title {
   font-family: var(--serif);
-  font-weight: 400;
-  font-size: clamp(72px, 13vw, 230px);
-  line-height: 0.86;
+  font-weight: 700;
+  font-size: clamp(48px, 7.4vw, 132px);
+  line-height: 1.05;
   letter-spacing: -0.035em;
   color: #fff;
   text-shadow: 0 6px 60px rgba(120, 10, 20, 0.45);
@@ -2390,5 +2391,49 @@ button.pill:not([class*='pill--']) {
   }
   .symx p br {
     display: none;
+  }
+}
+
+/* The finale's story lines, one at a time, centred over the crowd. */
+.gate__story {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  list-style: none;
+  pointer-events: none;
+}
+.gate__story li {
+  grid-area: 1 / 1;
+  padding: 0 var(--gutter);
+  text-align: center;
+  font-size: clamp(26px, 3.4vw, 54px);
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: -0.03em;
+  color: #fff;
+  text-shadow: 0 4px 40px rgba(0, 0, 0, 0.85), 0 0 60px rgba(120, 10, 20, 0.5);
+  opacity: 0;
+  transform: translateY(24px);
+  filter: blur(6px);
+}
+.gate__story small {
+  display: block;
+  margin-bottom: 14px;
+  font-family: var(--grotesk);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  color: #ff6b7d;
+}
+@media (max-width: 760px) {
+  /* Phones: the story sits high, over the sky and the tower, clear of the tiger. */
+  .gate__story {
+    place-items: start center;
+    padding-top: 17vh;
+  }
+  .gate__story li {
+    font-size: 24px;
   }
 }

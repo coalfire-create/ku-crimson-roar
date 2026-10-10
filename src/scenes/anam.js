@@ -947,7 +947,7 @@ export class AnamFlight {
       const g = this.gateAt
       // Framed as the photograph: on a 36° lens the 27 m gate spans the lower
       // half of the frame (top ~37%, foot ~92%), sky above.
-      const D = THREE.MathUtils.lerp(this.portrait ? 120 : 84, this.portrait ? 108 : 74, e)
+      const D = THREE.MathUtils.lerp(this.portrait ? 78 : 84, this.portrait ? 68 : 74, e)
       const pos = g.clone().addScaledVector(this.gateIn, -D)
       pos.y = Math.max(this.groundAt(g.x, g.z), this.groundAt(pos.x, pos.z)) + 1.8
       const look = g.clone()

@@ -403,7 +403,7 @@ async function boot() {
         prev.shade.style.opacity = on ? (ease(k) * 0.55).toFixed(3) : '0'
         s.flash.style.opacity = '0'
         // The finale's words wait until the doors have opened.
-        reveal(s, s.el.id === 'gate' ? gate.progress > 0.7 : k > 0.6)
+        reveal(s, s.el.id === 'gate' ? (gate.story ?? 0) > 0.86 : k > 0.6)
       }
       navLinks.forEach((a) => a.classList.toggle('is-on', a.getAttribute('href') === '#' + scenes[current].el.id))
       progressLine.style.transform = `scaleX(${clamp01(scrollY / Math.max(1, document.documentElement.scrollHeight - viewH))})`
@@ -843,6 +843,8 @@ async function boot() {
     })
     document.getElementById('vsClose').addEventListener('click', () => ((vs.hidden = true), lenis.start()))
 
+    const storyLines = [...document.querySelectorAll('#gateStory li')]
+
     /* 고연전: the five results come up one by one, then the title. */
     const GAMES = [
       ['야구', 2, 0],
@@ -890,7 +892,17 @@ async function boot() {
       flightHead.style.opacity = 1 - clamp01((fp - 0.06) / 0.04)
       fields.progress = progress(scenes[4].el)
       if (scenes[4].on) showField()
-      gate.progress = progress(document.getElementById('gate'))
+      // The finale: the letter over the first half, the story over the second.
+      const gp = progress(document.getElementById('gate'))
+      gate.progress = clamp01(gp / 0.45)
+      gate.story = clamp01((gp - 0.45) / 0.55)
+      storyLines.forEach((li, i) => {
+        const at = (gate.story - 0.04) / 0.8 * storyLines.length - i
+        const k = clamp01(1 - Math.abs(at - 0.5) * 2.2)
+        li.style.opacity = ease(k).toFixed(3)
+        li.style.transform = `translateY(${((1 - ease(k)) * (at < 0.5 ? 24 : -24)).toFixed(1)}px)`
+        li.style.filter = `blur(${((1 - k) * 6).toFixed(2)}px)`
+      })
       updateRivalry()
       updateSymbols()
       // Once dawn floods in, the finale's text turns to ink.
