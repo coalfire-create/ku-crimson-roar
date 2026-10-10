@@ -1086,22 +1086,6 @@ button.pill:not([class*='pill--']) {
   background: rgba(13, 13, 17, 0.3);
 }
 
-/* Claw marks: three scratches torn across the screen between chapters. */
-.claws {
-  position: fixed;
-  inset: 0;
-  z-index: 45;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-.claws path {
-  fill: none;
-  stroke: #ff3a22;
-  stroke-width: 7;
-  stroke-linecap: round;
-  filter: drop-shadow(0 0 10px #ff2a10) drop-shadow(0 0 30px rgba(255, 40, 10, 0.6));
-}
 .scene__flash {
   position: absolute;
   inset: 0;

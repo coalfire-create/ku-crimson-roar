@@ -148,11 +148,13 @@ async function boot() {
   // The opening is one beat, not a long scroll: the first scroll down sets the
   // tiger leaping at the viewer, and as it fills the frame the page carries
   // straight on into the next chapter. Back at the top, it is ready again.
-  const LEAP_DUR = 1.8
+  const LEAP_DUR = 2.2
+  let chapterReady = null
+  let introDone = false
   let leapRun = null
   let leapP = 0
   const startLeap = () => {
-    if (leapRun || !chapterTick || scrollY > 4) return false
+    if (leapRun || !chapterTick || !introDone || scrollY > 4) return false
     leapRun = { t: 0, went: false }
     return true
   }
@@ -165,10 +167,11 @@ async function boot() {
     if (leapRun) {
       leapRun.t += dt
       leapP = clamp01(leapRun.t / LEAP_DUR)
-      if (!leapRun.went && leapRun.t > LEAP_DUR * 0.8) {
+      // The next chapter starts fading in while the embers are still rising.
+      if (!leapRun.went && leapRun.t > LEAP_DUR * 0.4) {
         leapRun.went = true
         lenis.start()
-        lenis.scrollTo('#fortress', { duration: 1.2, force: true, easing: (x) => 1 - Math.pow(1 - x, 3), onComplete: () => (leapRun = null) })
+        lenis.scrollTo('#fortress', { duration: 1.8, force: true, easing: (x) => x * x * (3 - 2 * x), onComplete: () => (leapRun = null) })
       }
     } else if (chapterTick && scrollY <= 4) {
       // Back at the very top: the tiger stands ready and the page waits for the leap.
@@ -177,7 +180,9 @@ async function boot() {
     } else if (scrollY > viewH * 0.5) leapP = 1
     else leapP = 0
     const hp = leapP
-    hero.progress = hp
+    // The tiger no longer charges; the opening ends in embers instead.
+    hero.progress = 0
+    hero.exit = hp
     heroBody.style.transform = `translateY(${hp * -18}vh)`
     heroBody.style.opacity = (1 - clamp01((hp - 0.6) / 0.4)).toFixed(3)
     heroWord.style.transform = `scale(${1 + hp * 0.08})`
@@ -231,6 +236,18 @@ async function boot() {
   })
 
   await tween
+  // Build every chapter now, behind the loader: done later, it stalled the
+  // opening (the tiger-to-shield morph) for most of a second.
+  if (import.meta.env.DEV) window.__marks = { tween: performance.now() }
+  chapterTick = setupChapters(await chapterMods)
+  if (import.meta.env.DEV) window.__marks.chapters = performance.now()
+  // Hold the curtain until the tiger has loaded and everything behind it has
+  // drawn a few frames (shaders compiled, buffers uploaded), so the curtain
+  // lifts on a scene that is already running smoothly.
+  for (let t0 = performance.now(); !hero.tiger?.ready && performance.now() - t0 < 5000; ) await new Promise((r) => setTimeout(r, 50))
+  await Promise.race([chapterReady, new Promise((r) => setTimeout(r, 6000))])
+  for (let n = 0; n < 6; n++) await new Promise((r) => requestAnimationFrame(r))
+  if (import.meta.env.DEV) window.__marks.lift = performance.now()
   /* intro: the pale screen wipes up, the eyes open, "Korea" rises */
   const intro = new Promise((done) =>
     gsap
@@ -241,8 +258,9 @@ async function boot() {
       .from('.hero .char', { yPercent: 110, opacity: 0, stagger: 0.07, duration: 1.4, ease: 'expo.out' }, '-=2.6')
       .from('.nav, .hero .eyebrow, .reveal-hero', { y: 20, opacity: 0, stagger: 0.08, duration: 1, ease: 'power3.out' }, '-=1.1'),
   )
-  const [mods] = await Promise.all([chapterMods, intro])
-  chapterTick = setupChapters(mods)
+  await intro
+  introDone = true
+  if (import.meta.env.DEV) window.__marks.introDone = performance.now()
   lenis.start()
 
   function setupChapters([{ Fortress }, { Heart }, { AnamFlight }, { Gate }, { Frontiers }]) {
@@ -252,6 +270,7 @@ async function boot() {
     const aurora = new ShaderCanvas(document.getElementById('cvAurora'), AURORA, { maxDpr: 1, uniforms: { uEnergy: 0, uBeat: 0 } })
     const flight = new AnamFlight(document.getElementById('cvFlight'))
     if (import.meta.env.DEV) window.__flight = flight
+    chapterReady = flight.terrainReady
     // The campus tiger's roar: the growl and a jolt through the frame.
     flight.onRoar = () => {
       try {
@@ -338,47 +357,9 @@ async function boot() {
       }
     }
 
-    /* Claw marks: the next chapter is torn through the current one. The
-       reveal is a repeating diagonal stripe mask whose stripes widen until
-       they meet; three or four glowing scratches rake down the stripe edges
-       first. */
-    const ANGLE = 115
-    const PERIOD = 0.3 // of the viewport width
-    const NS = 'http://www.w3.org/2000/svg'
-    const claws = document.createElementNS(NS, 'svg')
-    claws.setAttribute('class', 'claws')
-    document.body.appendChild(claws)
-    const clawPaths = Array.from({ length: 6 }, () => claws.appendChild(document.createElementNS(NS, 'path')))
-    const layoutClaws = () => {
-      const W = innerWidth
-      const H = viewH
-      claws.setAttribute('viewBox', `0 0 ${W} ${H}`)
-      const th = (ANGLE * Math.PI) / 180
-      const dir = [Math.sin(th), -Math.cos(th)]
-      const L = Math.abs(W * Math.sin(th)) + Math.abs(H * Math.cos(th))
-      const P = W * PERIOD
-      const along = [-dir[1], dir[0]]
-      clawPaths.forEach((path, n) => {
-        const t = n * P - L / 2
-        const cx = W / 2 + dir[0] * t
-        const cy = H / 2 + dir[1] * t
-        const a = [cx - along[0] * H, cy - along[1] * H]
-        const b = [cx + along[0] * H, cy + along[1] * H]
-        // A slight hook, like a claw dragged through.
-        path.setAttribute('d', `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${(cx + dir[0] * 18).toFixed(1)},${(cy + dir[1] * 18).toFixed(1)} ${b[0].toFixed(1)},${b[1].toFixed(1)}`)
-        const len = path.getTotalLength()
-        path.style.strokeDasharray = `${len}`
-        path.dataset.len = len
-      })
-    }
-    layoutClaws()
-    addEventListener('resize', layoutClaws)
-    const clawReveal = (s, k, on) => {
-      const w = (ease(clamp01((k - 0.12) / 0.8)) * PERIOD * 100).toFixed(2)
-      const m = on ? `repeating-linear-gradient(${ANGLE}deg, #000 0 ${w}vw, transparent ${w}vw ${PERIOD * 100}vw)` : ''
-      s.sticky.style.webkitMaskImage = m
-      s.sticky.style.maskImage = m
-    }
+    // Chapters hand over by dissolving into one another (see transitions());
+    // the blur is left off on phones, where it costs too much.
+    const MOBILE = innerWidth < 760
 
     const navLinks = [...document.querySelectorAll('.nav__links a')]
     const progressLine = document.getElementById('progressLine')
@@ -386,7 +367,6 @@ async function boot() {
     let current = 0
     const transitions = () => {
       current = 0
-      let scratch = 0
       for (let i = 1; i < scenes.length; i++) {
         const s = scenes[i]
         const prev = scenes[i - 1]
@@ -399,30 +379,26 @@ async function boot() {
           pin(s, top, on, `scale(${1 + (1 - k) * 0.06})`)
           s.sticky.style.opacity = on ? ease(clamp01((k - 0.3) / 0.5)).toFixed(3) : ''
           flight.intro = 1 - k
-          prev.flash.style.opacity = on ? (Math.sin(Math.PI * clamp01(k / 0.5)) * 0.8).toFixed(3) : '0'
+          // A dip through darkness rather than a flash.
+          prev.flash.style.opacity = '0'
+          prev.shade.style.opacity = on ? (Math.sin(Math.PI * clamp01(k / 0.6)) * 0.8).toFixed(3) : '0'
           if (on) prev.sticky.style.transform = `scale(${1 + k * 0.1})`
           reveal(s, k > 0.8)
           continue
         }
-        pin(s, top, on)
-        clawReveal(s, k, on)
-        if (on) {
-          scratch = Math.max(scratch, k)
-          prev.sticky.style.transform = `scale(${1 - k * 0.05})`
-        }
-        prev.shade.style.opacity = on ? (k * 0.6).toFixed(3) : '0'
-        s.flash.style.opacity = on ? (Math.max(0, 1 - k / 0.4) * 0.35).toFixed(3) : '0'
+        // A cinematic dissolve: the next chapter fades up out of a soft blur,
+        // settling from a slight zoom, while the last one drifts forward and
+        // dims beneath it.
+        const e = ease(clamp01((k - 0.05) / 0.85))
+        pin(s, top, on, `scale(${(1.06 - 0.06 * e).toFixed(4)})`)
+        s.sticky.style.opacity = on ? e.toFixed(3) : ''
+        s.sticky.style.filter = on && !MOBILE ? `blur(${((1 - e) * 6).toFixed(2)}px)` : ''
+        if (on) prev.sticky.style.transform = `scale(${(1 + k * 0.07).toFixed(4)})`
+        prev.shade.style.opacity = on ? (ease(k) * 0.55).toFixed(3) : '0'
+        s.flash.style.opacity = '0'
         // The finale's words wait until the doors have opened.
         reveal(s, s.el.id === 'gate' ? gate.progress > 0.7 : k > 0.6)
       }
-      // Scratches rake down in the first third of a tear, then fade.
-      const draw = ease(clamp01(scratch / 0.3))
-      const fade = scratch > 0 ? 1 - ease(clamp01((scratch - 0.45) / 0.35)) : 0
-      clawPaths.forEach((p, n) => {
-        const d = clamp01(draw * 1.3 - n * 0.06)
-        p.style.strokeDashoffset = `${(+p.dataset.len * (1 - d)).toFixed(1)}`
-        p.style.opacity = fade.toFixed(3)
-      })
       navLinks.forEach((a) => a.classList.toggle('is-on', a.getAttribute('href') === '#' + scenes[current].el.id))
       progressLine.style.transform = `scaleX(${clamp01(scrollY / Math.max(1, document.documentElement.scrollHeight - viewH))})`
     }

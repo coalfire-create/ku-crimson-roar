@@ -333,7 +333,8 @@ export class AnamFlight {
     this.#buildGate()
     this.#buildLamps()
     this.#buildSparkles()
-    this.#loadTerrain()
+    // Resolves once the relief and everything placed on it are in.
+    this.terrainReady = this.#loadTerrain()
 
     // The tiger itself, running at the head of its pawprint trail.
     // Drawn like the rest of the anime campus: clean coat, no fur shells.
@@ -633,6 +634,10 @@ export class AnamFlight {
     for (let i = 0; i < pos.count; i++) pos.setY(i, this.groundAt(pos.getX(i), pos.getZ(i)) - 0.3)
     pos.needsUpdate = true
     this.ground.geometry.computeVertexNormals()
+    // The rest is spread over several frames, so the page never stalls
+    // (this lands while the opening is still playing).
+    const frame = () => new Promise((r) => requestAnimationFrame(r))
+    await frame()
     // Things placed on the ground follow the relief.
     for (const t of this.targets) if (t.key) t.anchor.y = this.groundAt(t.anchor.x, t.anchor.z) + t.lift
     if (this.statue) this.statue.position.y = this.groundAt(this.statue.position.x, this.statue.position.z)
@@ -640,9 +645,13 @@ export class AnamFlight {
     this.#placeLamps()
     this.#placeBronze()
     this.#buildClearance()
+    await frame()
     this.#planShots()
+    await frame()
     this.#plantTrees()
+    await frame()
     this.#populate()
+    await frame()
     this.#buildPaws()
     this.#buildRibbon()
   }
