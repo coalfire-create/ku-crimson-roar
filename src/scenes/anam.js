@@ -36,7 +36,7 @@ export const TARGETS = [
   { key: 'tiger', name: '호상', en: 'Tiger Statue', body: '지구 위에 선 백색 화강암 호랑이. 세계로 뻗어 나가는 고대의 기상을 상징한다.' },
   { hall: '중앙도서관', name: '중앙도서관', en: 'Central Library', body: '밤늦도록 불이 꺼지지 않는 지성의 심장. 앞 중앙광장 잔디 아래엔 지하 열람실이 있다.' },
   { hall: '경영본관', name: '경영본관', en: 'Business School', body: '현대자동차경영관·LG-POSCO경영관과 함께 경영대학을 이루는 석조 건물.' },
-  { hall: '현대자동차경영관', name: '현대자동차경영관', en: 'Hyundai Motor Hall', body: '화강암 사이로 흰 석재 핀과 유리 커튼월이 솟은 경영대학의 새 얼굴. 옆 건물과 뾰족 아치 다리로 이어진다.' },
+  { hall: '현대자동차경영관', name: '현대자동차경영관', en: 'Hyundai Motor Hall', body: '흰 석재 핀 사이로 유리 커튼월이 솟은 경영대학의 새 얼굴.' },
   { hall: '백주년기념삼성관', name: '백주년기념삼성관', en: 'Centennial Samsung Hall', body: '개교 100주년을 기념해 세운 고딕 양식의 건물.' },
   { hall: '본관', name: '본관', en: 'Main Hall', body: '1934년 완공된 화강암 고딕 건물. 국가 사적으로 지정된 고려대의 얼굴.' },
   { hall: '인촌기념관', name: '인촌기념관', en: 'Inchon Memorial Hall', body: '인촌의 묘소가 있던 자리에 탄생 100주년(1991)을 맞아 세운 기념관. 입학식과 졸업식이 열린다.' },
@@ -122,7 +122,8 @@ const GRADE = {
 
 // Wall / roof look by style: s = style index, per-building seed, base and top.
 // Halls that carry a tower over the roof.
-const TOWERS = /^(본관|중앙도서관|인촌기념관)$/
+const TOWERS = /^(본관|중앙도서관)$/
+const BESPOKE = new Set(['현대자동차경영관', '인촌기념관'])
 const STYLE = { c: 0, g: 1, m: 2, h: 3, d: 4, t: 5 }
 
 // Oriented bounding rectangle of a footprint (for gothic roofs and towers).
@@ -1216,6 +1217,8 @@ export class AnamFlight {
 
     DATA.buildings.forEach((b, i) => {
       if (b.flat) return
+      // Modelled separately, after photographs (see #buildBespoke).
+      if (BESPOKE.has(b.n)) return
       campusNow = b.c ? 1 : 0
       const base = WORLD.bases[i]
       const s = STYLE[WORLD.styles[i]]
@@ -2032,40 +2035,122 @@ export class AnamFlight {
     }
   }
 
-  // Buildings modelled after photographs of them (Street View), laid over
-  // their footprints on the face the film looks at:
-  //  - 인촌기념관: a gothic entrance tower with a great pointed arch.
-  //  - 현대자동차경영관: full-height white stone fins over a glass curtain
-  //    wall, a deep flat cornice, and the pointed-arch bridge to its neighbour.
+  // Buildings modelled after photographs (Street View), built whole on their
+  // real footprints in place of the generic block:
+  //  - 현대자동차경영관: a white stone fin every 2.6 m and a glass curtain
+  //    wall between, floor slabs, a deep overhanging flat cornice.
+  //  - 인촌기념관: granite ashlar with rows of pointed windows, a battlemented
+  //    parapet, and its gothic entrance tower with the great pointed arch,
+  //    attached to the front the film looks at.
   #buildBespoke() {
-    const faceOf = (name) => {
-      const t = this.shows?.find((x) => x.hall === name)
-      const b = DATA.buildings.filter((x) => x.n === name).sort((p, q) => q.p.length - p.p.length)[0]
-      if (!t || !b) return null
-      const o = obb(b.p)
-      const a = (t.shot.a0 + t.shot.a1) / 2
-      const dir = new THREE.Vector3(Math.sin(a), 0, Math.cos(a)) // from the hall toward the camera
-      // Distance from the centre to the footprint's edge along dir.
-      const u = dir.x * Math.cos(o.a) + dir.z * Math.sin(o.a)
-      const v = -dir.x * Math.sin(o.a) + dir.z * Math.cos(o.a)
-      const edge = Math.min(o.L / 2 / Math.max(1e-3, Math.abs(u)), o.W / 2 / Math.max(1e-3, Math.abs(v)))
-      const c = new THREE.Vector3(o.cx, 0, o.cz)
-      const base = this.groundAt(o.cx, o.cz)
-      // Along the face: the obb axis most square to dir.
-      const along = Math.abs(u) < Math.abs(v) ? new THREE.Vector3(Math.cos(o.a), 0, Math.sin(o.a)) : new THREE.Vector3(-Math.sin(o.a), 0, Math.cos(o.a))
-      const span = Math.abs(u) < Math.abs(v) ? o.L : o.W
-      return { b, o, dir, edge, c, base, along, span }
+    const facade = (kind) => {
+      // One canvas covers several bays and floors, so lit windows vary.
+      const cols = 8
+      const rows = 5
+      const cw = kind === 'fins' ? 64 : 80
+      const ch = 100
+      const map = document.createElement('canvas')
+      const glow = document.createElement('canvas')
+      map.width = glow.width = cols * cw
+      map.height = glow.height = rows * ch
+      const m = map.getContext('2d')
+      const g = glow.getContext('2d')
+      g.fillStyle = '#000'
+      g.fillRect(0, 0, glow.width, glow.height)
+      let seed = kind === 'fins' ? 7 : 13
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+      if (kind === 'fins') {
+        for (let r = 0; r < rows; r++)
+          for (let c = 0; c < cols; c++) {
+            const x = c * cw
+            const y = r * ch
+            // Blue-grey glass; some rooms lit behind it, warm but soft.
+            const lit = rnd() < 0.45
+            m.fillStyle = lit ? '#6f6a5c' : '#24303d'
+            m.fillRect(x, y, cw, ch)
+            const k = 0.35 + rnd() * 0.3
+            g.fillStyle = lit ? `rgb(${Math.round(255 * k)},${Math.round(190 * k)},${Math.round(110 * k)})` : '#000'
+            g.fillRect(x + cw * 0.2, y + ch * 0.1, cw * 0.8, ch * 0.82)
+            // Mullion and transom in the glass.
+            m.fillStyle = 'rgba(200,205,210,0.35)'
+            m.fillRect(x + cw * 0.58, y, 2, ch)
+            m.fillRect(x + cw * 0.2, y + ch * 0.5, cw * 0.8, 2)
+            // The white stone fin and the floor slab.
+            m.fillStyle = '#e9e6e0'
+            m.fillRect(x, y, cw * 0.2, ch)
+            m.fillRect(x, y + ch * 0.92, cw, ch * 0.08)
+          }
+      } else {
+        m.fillStyle = '#b8b2a9'
+        m.fillRect(0, 0, map.width, map.height)
+        for (let k = 0; k < 900; k++) {
+          const v = 150 + rnd() * 45
+          m.fillStyle = `rgba(${v},${v - 4},${v - 10},0.35)`
+          m.fillRect(rnd() * map.width, rnd() * map.height, 14 + rnd() * 20, 8)
+        }
+        m.fillStyle = 'rgba(70,64,58,0.5)'
+        for (let y = 0; y < map.height; y += 12) m.fillRect(0, y, map.width, 1.5)
+        const lancet = (ctx, x, y, w, h) => {
+          ctx.beginPath()
+          ctx.moveTo(x - w / 2, y + h)
+          ctx.lineTo(x - w / 2, y + h * 0.35)
+          ctx.quadraticCurveTo(x - w / 2, y + h * 0.05, x, y)
+          ctx.quadraticCurveTo(x + w / 2, y + h * 0.05, x + w / 2, y + h * 0.35)
+          ctx.lineTo(x + w / 2, y + h)
+          ctx.closePath()
+          ctx.fill()
+        }
+        for (let r = 0; r < rows; r++)
+          for (let c = 0; c < cols; c++) {
+            const x = c * cw + cw / 2
+            const y = r * ch + ch * 0.18
+            m.fillStyle = '#e4ded3'
+            lancet(m, x, y - 4, cw * 0.46, ch * 0.66)
+            const lit = rnd() < 0.62
+            m.fillStyle = lit ? '#c9a46a' : '#24262e'
+            lancet(m, x, y, cw * 0.36, ch * 0.6)
+            if (lit) ((g.fillStyle = '#ffc879'), lancet(g, x, y, cw * 0.36, ch * 0.6))
+          }
+      }
+      const tex = (cv, srgb) => {
+        const t = new THREE.CanvasTexture(cv)
+        t.wrapS = t.wrapT = THREE.RepeatWrapping
+        t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+        t.anisotropy = 8
+        return t
+      }
+      const bay = kind === 'fins' ? 2.6 : 3.2
+      const mat = new THREE.MeshStandardMaterial({ map: tex(map, true), emissiveMap: tex(glow, true), emissive: '#ffffff', emissiveIntensity: 0.9, roughness: kind === 'fins' ? 0.35 : 0.85, metalness: kind === 'fins' ? 0.2 : 0 })
+      return { mat, su: 1 / (bay * cols), sv: 1 / (4 * rows) }
     }
-    const granite = new THREE.MeshStandardMaterial({ color: '#b9b6b0', roughness: 0.85, emissive: '#ffcf9a', emissiveIntensity: 0.12 })
-    const white = new THREE.MeshStandardMaterial({ color: '#e9e6e0', roughness: 0.6, emissive: '#ffe2c0', emissiveIntensity: 0.1 })
-    const glass = new THREE.MeshStandardMaterial({ color: '#2a3a4c', roughness: 0.12, metalness: 0.7, emissive: '#ffcf8a', emissiveIntensity: 0.22 })
-    const dark = new THREE.MeshBasicMaterial({ color: '#120d0c' })
+    // The footprint extruded, its walls mapped in metres (along, up).
+    const mass = (P, base, h, f) => {
+      const sh = new THREE.Shape(P.map(([x, z]) => new THREE.Vector2(x, -z)))
+      let geo = new THREE.ExtrudeGeometry(sh, { depth: h, bevelEnabled: false })
+      geo.rotateX(-Math.PI / 2)
+      geo.translate(0, base, 0)
+      geo = wallUV(geo.toNonIndexed(), P)
+      const uv = geo.attributes.uv
+      const pos = geo.attributes.position
+      const nrm = geo.attributes.normal
+      for (let i = 0; i < uv.count; i++) {
+        if (Math.abs(nrm.getY(i)) > 0.5) uv.setXY(i, 0.001, 0.001)
+        else uv.setXY(i, uv.getX(i) * f.su, (pos.getY(i) - base) * f.sv)
+      }
+      return geo
+    }
+    const roofM = new THREE.MeshStandardMaterial({ color: '#4a4c52', roughness: 0.9 })
+    const white = new THREE.MeshStandardMaterial({ color: '#e9e6e0', roughness: 0.6, emissive: '#ffe2c0', emissiveIntensity: 0.08 })
+    const granite = new THREE.MeshStandardMaterial({ color: '#b9b4ac', roughness: 0.85, emissive: '#ffcf9a', emissiveIntensity: 0.1 })
     const lit = new THREE.MeshBasicMaterial({ color: '#ffcf8a' })
-    const place = (g, f) => {
-      g.position.copy(f.c).addScaledVector(f.dir, f.edge)
-      g.position.y = f.base
-      g.rotation.y = Math.atan2(f.dir.x, f.dir.z) // local +z faces out
-      this.scene.add(g)
+    const dark = new THREE.MeshBasicMaterial({ color: '#120d0c' })
+    const ring = (P, y0, y1, out, mat) => {
+      const outer = offsetPoly(P, out)
+      const sh = new THREE.Shape(outer.map(([x, z]) => new THREE.Vector2(x, -z)))
+      const geo = new THREE.ExtrudeGeometry(sh, { depth: y1 - y0, bevelEnabled: false })
+      geo.rotateX(-Math.PI / 2)
+      geo.translate(0, y0, 0)
+      return new THREE.Mesh(geo, mat)
     }
     const lancet = (w, h) => {
       const s = new THREE.Shape()
@@ -2077,82 +2162,98 @@ export class AnamFlight {
       s.lineTo(r, 0)
       return new THREE.ShapeGeometry(s, 8)
     }
+    const parts = (name) =>
+      DATA.buildings
+        .map((b, i) => ({ b, i }))
+        .filter(({ b }) => b.n === name)
 
-    // 인촌기념관: the entrance tower.
-    const ic = faceOf('인촌기념관')
-    if (ic) {
+    // 현대자동차경영관
+    const fins = facade('fins')
+    for (const { b, i } of parts('현대자동차경영관')) {
+      const base = WORLD.bases[i]
+      const h = b.h
       const g = new THREE.Group()
-      const H = ic.b.h * 1.75
-      const box = (w, h, d, x, y, z, m = granite) => g.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d).translate(x, y, z), m))
-      box(11, H, 6, 0, H / 2, 1)
-      box(11.8, 0.6, 6.8, 0, H + 0.3, 1)
-      for (let k = 0; k < 5; k++) for (const zz of [-2.2, 4.2]) box(1.2, 1.1, 0.6, -4.4 + k * 2.2, H + 1.15, zz)
-      for (const x of [-5.8, 5.8]) {
-        box(1.4, H + 3, 1.4, x, (H + 3) / 2, 4.2)
-        g.add(new THREE.Mesh(new THREE.ConeGeometry(0.9, 2.6, 4).rotateY(Math.PI / 4).translate(x, H + 4.3, 4.2), granite))
-      }
-      // The great pointed arch: a moulded surround, the dark doorway, lit glass above the doors.
-      g.add(new THREE.Mesh(lancet(6.4, 10.5).translate(0, 0, 4.03), white))
-      g.add(new THREE.Mesh(lancet(5.2, 9.6).translate(0, 0, 4.06), dark))
-      g.add(new THREE.Mesh(lancet(3.8, 3.6).translate(0, 5.4, 4.08), lit))
-      for (const x of [-2.6, 2.6]) g.add(new THREE.Mesh(lancet(1.4, 4).translate(x, 12.5, 4.04), lit))
-      g.add(new THREE.Mesh(lancet(2.0, 4.6).translate(0, 12.2, 4.04), lit))
-      place(g, ic)
+      const body = new THREE.Mesh(mass(b.p, base - 1, h + 1, fins), fins.mat)
+      body.castShadow = body.receiveShadow = true
+      g.add(body)
+      // Roof, then the deep cornice slab overhanging all round.
+      g.add(ring(b.p, base + h - 0.05, base + h, -0.01, roofM))
+      g.add(ring(b.p, base + h, base + h + 1.1, 1.4, white))
+      // A granite plinth.
+      g.add(ring(b.p, base - 1, base + 1.2, 0.25, granite))
+      this.scene.add(g)
     }
 
-    // 현대자동차경영관: fins, curtain wall, cornice; and the arch bridge.
-    const hy = faceOf('현대자동차경영관')
-    if (hy) {
+    // 인촌기념관
+    const ash = facade('lancet')
+    for (const { b, i } of parts('인촌기념관')) {
+      const base = WORLD.bases[i]
+      const h = b.h
       const g = new THREE.Group()
-      const H = hy.b.h
-      const W = Math.min(hy.span * 0.92, 60)
-      // Glass curtain wall, a little proud of the stone.
-      g.add(new THREE.Mesh(new THREE.PlaneGeometry(W * 0.86, H * 0.86).translate(0, H * 0.5, 0.25), glass))
-      // Full-height stone fins, every 2.6 m.
-      const n = Math.floor((W * 0.86) / 2.6)
-      for (let k = 0; k <= n; k++) g.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, H * 0.92, 1.4).translate(-W * 0.43 + k * 2.6, H * 0.46, 0.8), white))
-      // Floor lines across the glass.
-      for (let f = 1; f < Math.floor(H / 4); f++) g.add(new THREE.Mesh(new THREE.BoxGeometry(W * 0.86, 0.22, 0.35).translate(0, f * 4, 0.45), white))
-      // The deep flat cornice overhanging the top.
-      g.add(new THREE.Mesh(new THREE.BoxGeometry(W + 2, 1.2, 4.5).translate(0, H + 0.4, 0.6), white))
-      // Rough granite end piers.
-      for (const x of [-W / 2, W / 2]) g.add(new THREE.Mesh(new THREE.BoxGeometry(3.2, H + 0.4, 2.2).translate(x, (H + 0.4) / 2, 0.4), granite))
-      place(g, hy)
-      // The pointed-arch bridge to the nearest neighbour across the gap.
-      const neighbour = DATA.buildings
-        .filter((x) => x !== hy.b && x.n && /경영/.test(x.n))
-        .map((x) => ({ x, o: obb(x.p) }))
-        .sort((p, q) => Math.hypot(p.o.cx - hy.o.cx, p.o.cz - hy.o.cz) - Math.hypot(q.o.cx - hy.o.cx, q.o.cz - hy.o.cz))[0]
-      if (neighbour) {
-        const a = new THREE.Vector3(hy.o.cx, 0, hy.o.cz)
-        const b = new THREE.Vector3(neighbour.o.cx, 0, neighbour.o.cz)
-        const gap = Math.max(8, a.distanceTo(b) - (hy.o.W + neighbour.o.W) / 2)
-        const mid = a.clone().lerp(b, 0.5)
-        const bridge = new THREE.Group()
-        const sh = new THREE.Shape()
-        const r = gap / 2
-        sh.moveTo(-r, 0)
-        sh.lineTo(-r, 5.5)
-        sh.quadraticCurveTo(-r, 9.5, 0, 10.5)
-        sh.quadraticCurveTo(r, 9.5, r, 5.5)
-        sh.lineTo(r, 0)
-        sh.lineTo(r + 1.5, 0)
-        sh.lineTo(r + 1.5, 14.5)
-        sh.lineTo(-r - 1.5, 14.5)
-        sh.lineTo(-r - 1.5, 0)
-        sh.closePath()
-        const bg = new THREE.ExtrudeGeometry(sh, { depth: 5, bevelEnabled: false, curveSegments: 16 })
-        bg.translate(0, 0, -2.5)
-        bridge.add(new THREE.Mesh(bg, granite))
-        for (let k = 0; k < 3; k++) for (const zz of [2.53, -2.53]) {
-          const wg = lancet(1.3, 2.4)
-          if (zz < 0) wg.rotateY(Math.PI)
-          bridge.add(new THREE.Mesh(wg.translate(-r * 0.5 + k * r * 0.5, 11.2, zz), lit))
+      const body = new THREE.Mesh(mass(b.p, base - 1, h + 1, ash), ash.mat)
+      body.castShadow = body.receiveShadow = true
+      g.add(body)
+      g.add(ring(b.p, base + h - 0.05, base + h, -0.01, roofM))
+      g.add(ring(b.p, base + h, base + h + 0.5, 0.35, granite))
+      g.add(ring(b.p, base - 1, base + 1.2, 0.3, granite))
+      // Battlements along every wall.
+      const P = b.p
+      for (let k = 0; k < P.length - 1; k++) {
+        const [ax, az] = P[k]
+        const [bx, bz] = P[k + 1]
+        const len = Math.hypot(bx - ax, bz - az)
+        const n = Math.floor(len / 2.4)
+        const ang = Math.atan2(bz - az, bx - ax)
+        for (let q = 0; q < n; q++) {
+          const f = (q + 0.5) / n
+          const mer = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.1, 0.6), granite)
+          mer.position.set(ax + (bx - ax) * f, base + h + 1.05, az + (bz - az) * f)
+          mer.rotation.y = -ang
+          g.add(mer)
         }
-        bridge.position.set(mid.x, this.groundAt(mid.x, mid.z), mid.z)
-        bridge.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x)
-        this.scene.add(bridge)
       }
+      this.scene.add(g)
+    }
+    // The entrance tower, set into the front the film looks at.
+    const t = this.shows?.find((x) => x.hall === '인촌기념관')
+    const main = parts('인촌기념관').sort((p, q) => q.b.p.length - p.b.p.length)[0]
+    if (t && main) {
+      const o = obb(main.b.p)
+      const a = (t.shot.a0 + t.shot.a1) / 2
+      const dir = new THREE.Vector3(Math.sin(a), 0, Math.cos(a))
+      // Walk out from the centre until outside the footprint: that is the front wall.
+      const inside = (x, z) => {
+        let c = false
+        const P = main.b.p
+        for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+          const [xi, zi] = P[i]
+          const [xj, zj] = P[j]
+          if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c
+        }
+        return c
+      }
+      let edge = 0
+      while (edge < 80 && inside(o.cx + dir.x * edge, o.cz + dir.z * edge)) edge += 0.5
+      const base = WORLD.bases[main.i]
+      const H = main.b.h * 1.75
+      const g = new THREE.Group()
+      const box = (w, h, d, x, y, z, m = granite) => g.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d).translate(x, y, z), m))
+      // Set 3 m into the building and standing 1.5 m proud of its wall.
+      box(11, H, 4.5, 0, H / 2, -0.75)
+      box(11.8, 0.6, 5.3, 0, H + 0.3, -0.75)
+      for (let k = 0; k < 5; k++) for (const zz of [-2.8, 1.3]) box(1.2, 1.1, 0.6, -4.4 + k * 2.2, H + 1.15, zz)
+      for (const x of [-5.8, 5.8]) {
+        box(1.4, H + 3, 1.4, x, (H + 3) / 2, 1.3)
+        g.add(new THREE.Mesh(new THREE.ConeGeometry(0.9, 2.6, 4).rotateY(Math.PI / 4).translate(x, H + 4.3, 1.3), granite))
+      }
+      g.add(new THREE.Mesh(lancet(6.4, 10.5).translate(0, 0, 1.53), white))
+      g.add(new THREE.Mesh(lancet(5.2, 9.6).translate(0, 0, 1.56), dark))
+      g.add(new THREE.Mesh(lancet(3.8, 3.6).translate(0, 5.4, 1.58), lit))
+      for (const x of [-2.6, 2.6]) g.add(new THREE.Mesh(lancet(1.4, 4).translate(x, 12.5, 1.54), lit))
+      g.add(new THREE.Mesh(lancet(2.0, 4.6).translate(0, 12.2, 1.54), lit))
+      g.position.set(o.cx + dir.x * edge, this.groundAt(o.cx + dir.x * edge, o.cz + dir.z * edge), o.cz + dir.z * edge)
+      g.rotation.y = Math.atan2(dir.x, dir.z)
+      this.scene.add(g)
     }
   }
 

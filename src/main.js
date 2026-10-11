@@ -1003,8 +1003,9 @@ async function boot() {
         const at = (gate.story - 0.04) / 0.8 * storyLines.length - i
         const k = clamp01(1 - Math.abs(at - 0.5) * 2.2)
         li.style.opacity = ease(k).toFixed(3)
-        li.style.transform = `translateY(${((1 - ease(k)) * (at < 0.5 ? 24 : -24)).toFixed(1)}px)`
-        li.style.filter = `blur(${((1 - k) * 6).toFixed(2)}px)`
+        // Fade and rise only: an animated blur on text this large repaints
+        // it every frame and stutters.
+        li.style.transform = `translate3d(0, ${((1 - ease(k)) * (at < 0.5 ? 24 : -24)).toFixed(1)}px, 0)`
       })
       updateRivalry()
       updateSymbols()
