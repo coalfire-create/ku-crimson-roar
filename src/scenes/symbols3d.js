@@ -87,10 +87,43 @@ export class Symbols3D {
 
     // 2. The tiger on its crag, 70 m further on.
     const T = (this.tigerAt = new THREE.Vector3(0, 0, -70))
-    const crag = new THREE.Mesh(new THREE.DodecahedronGeometry(4, 2), new THREE.MeshStandardMaterial({ color: '#2b2422', roughness: 0.95, flatShading: true }))
-    crag.scale.set(2.2, 0.9, 1.6)
-    crag.position.copy(T).add(new THREE.Vector3(0, 0.2, 0))
-    this.scene.add(crag)
+    // As 호상 stands on campus: the tiger on top of a carved stone globe, the
+    // globe on a round stepped base.
+    const stone = new THREE.MeshStandardMaterial({ color: '#a9a49b', roughness: 0.85 })
+    for (const [r, h, y] of [[5.2, 0.6, 0], [4.3, 0.6, 0.6], [3.2, 1.0, 1.2]]) {
+      const step = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.1, h, 48), stone)
+      step.position.copy(T).add(new THREE.Vector3(0, y + h / 2, 0))
+      this.scene.add(step)
+    }
+    const gc = document.createElement('canvas')
+    gc.width = 1024
+    gc.height = 512
+    const gx = gc.getContext('2d')
+    gx.fillStyle = '#8f8a82'
+    gx.fillRect(0, 0, 1024, 512)
+    let sd = 9
+    const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647)
+    gx.fillStyle = '#c9c3b8'
+    for (const [cx, cy, rx, ry] of [[200, 170, 120, 90], [250, 330, 70, 110], [520, 150, 150, 80], [560, 280, 80, 110], [760, 170, 180, 95], [860, 360, 70, 45], [430, 440, 160, 30]]) {
+      gx.beginPath()
+      for (let k = 0; k <= 40; k++) {
+        const ang = (k / 40) * Math.PI * 2
+        const w = 0.75 + rnd() * 0.45
+        gx.lineTo(cx + Math.cos(ang) * rx * w, cy + Math.sin(ang) * ry * w)
+      }
+      gx.fill()
+    }
+    gx.strokeStyle = 'rgba(50,46,42,0.55)'
+    gx.lineWidth = 3
+    for (let k = 1; k < 8; k++) (gx.beginPath(), gx.moveTo(0, (k * 512) / 8), gx.lineTo(1024, (k * 512) / 8), gx.stroke())
+    for (let k = 0; k < 12; k++) (gx.beginPath(), gx.moveTo((k * 1024) / 12, 0), gx.lineTo((k * 1024) / 12, 512), gx.stroke())
+    const gt = new THREE.CanvasTexture(gc)
+    gt.colorSpace = THREE.SRGBColorSpace
+    const R = 3.4
+    const globe = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 40), new THREE.MeshStandardMaterial({ map: gt, bumpMap: gt, bumpScale: 2, roughness: 0.8 }))
+    globe.position.copy(T).add(new THREE.Vector3(0, 2.2 + R * 0.97, 0))
+    this.scene.add(globe)
+    this.globeTop = 2.2 + R * 1.97
     const key = new THREE.SpotLight('#ffe2c4', 160, 60, 0.35, 0.6, 1.6)
     key.position.copy(T).add(new THREE.Vector3(-6, 22, 10))
     key.target.position.copy(T).add(new THREE.Vector3(0, 4, 0))
@@ -237,7 +270,7 @@ export class Symbols3D {
     // Camera keyframes per set: [position, look].
     const K = [
       [new THREE.Vector3(-4, 8, P ? 34 : 24), new THREE.Vector3(2, 9, 0)],
-      [new THREE.Vector3(5, 5.5, -70 + (P ? 22 : 15)), new THREE.Vector3(-1, 5.2, -70)],
+      [new THREE.Vector3(6.5, 9.5, -70 + (P ? 27 : 20)), new THREE.Vector3(-1.5, 9.4, -70)],
       [new THREE.Vector3(3.5, 5.2, -240 + (P ? 13 : 9)), new THREE.Vector3(-0.3, 2.4, -240)],
     ]
     const a = this.act()
@@ -263,21 +296,13 @@ export class Symbols3D {
     this.cloth.visible = this.camera.position.z > this.cloth.position.z - 1
     // Tiger: roars every few seconds while it is in view.
     if (this.tiger.ready) {
-      // Alive on its crag: it paces across the top, turns, stops facing out
-      // and roars, then paces back. Animated all the time (not only when in
-      // view), so it never snaps into a pose as it appears.
-      const C = 9 // seconds per cycle
+      // Standing on the globe as 호상 does, three-quarter on, and roaring:
+      // a long roar, a breath with the head still high, then again.
+      const C = 4.2
       const c = (t % C) / C
-      // 0-0.32 walk right, 0.32-0.5 stand and roar, 0.5-0.82 walk left, 0.82-1 roar.
-      const walkR = S(c, 0, 0.32)
-      const walkL = S(c, 0.5, 0.82)
-      const x = -2.4 + 4.8 * walkR - 4.8 * walkL
-      const moving = (c < 0.32 || (c > 0.5 && c < 0.82)) ? 1 : 0
-      const dirX = c < 0.32 ? 1 : c > 0.5 && c < 0.82 ? -1 : 0
-      const out = new THREE.Vector3(dirX * 0.9, 0, dirX ? 0.45 : 1).normalize()
-      const roarK = Math.max(S(c, 0.36, 0.4) * (1 - S(c, 0.46, 0.5)), S(c, 0.86, 0.9) * (1 - S(c, 0.96, 1)))
-      const pos = this.tigerAt.clone().add(new THREE.Vector3(x, 3.4, 0))
-      this.tiger.update(dt, pos, out, moving ? 1.3 : 0, roarK * 0.9)
+      const roarK = S(c, 0.04, 0.16) * (1 - S(c, 0.62, 0.8))
+      const pos = this.tigerAt.clone().add(new THREE.Vector3(0, this.globeTop - 0.3, 0))
+      this.tiger.update(dt, pos, new THREE.Vector3(0.5, 0, 1).normalize(), 0, 0.25 + roarK * 0.75)
       this.tiger.group.visible = a > 0.4 && a < 1.7
     }
     const ep = this.embers.geometry.attributes.position
