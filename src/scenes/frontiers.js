@@ -494,7 +494,7 @@ export class Frontiers {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.25 : 1.5))
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.1 : 1.5))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color('#05060c')

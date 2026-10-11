@@ -306,7 +306,7 @@ export class AnamFlight {
   constructor(canvas) {
     this.canvas = canvas
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.25 : 1.5))
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1 : 1.5))
     // Neutral tone mapping keeps colours clean and saturated, as painted.
     this.renderer.toneMapping = THREE.NeutralToneMapping
     // Bright and airy, like a painted anime background.
@@ -606,8 +606,10 @@ export class AnamFlight {
   // Swap the drawn map for the real photograph once enough of it has arrived.
   #loadAerial() {
     const origin = DATA.origin
-    const base = loadAerial({ origin, x0: T.x0, x1: X1, z0: T.z0, z1: Z1, zoom: 17, maxSize: MOBILE ? 2048 : 4096 })
-    const core = loadAerial({ origin, x0: -850, x1: 450, z0: -400, z1: 650, zoom: MOBILE ? 18 : 19, maxSize: MOBILE ? 4096 : 6144 })
+    // Phones get half-size photography: it is seen from afar there, and a
+    // 30 MB upload stalls a phone for a second.
+    const base = loadAerial({ origin, x0: T.x0, x1: X1, z0: T.z0, z1: Z1, zoom: MOBILE ? 16 : 17, maxSize: MOBILE ? 1024 : 4096 })
+    const core = loadAerial({ origin, x0: -850, x1: 450, z0: -400, z1: 650, zoom: MOBILE ? 17 : 19, maxSize: MOBILE ? 2048 : 6144 })
     for (const [t, x, l] of [[base.texture, 'uBaseX', 'uBase'], [core.texture, 'uCoreX', 'uCore']]) {
       t.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
       AER[l].value = t

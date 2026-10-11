@@ -102,7 +102,7 @@ export class Hero3D {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.5 : 1.75))
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.25 : 1.75))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.0
     this.renderer.shadowMap.enabled = true
@@ -145,7 +145,7 @@ export class Hero3D {
     this.scene.add(this.key, this.key.target, this.rim, this.rim.target, this.rim2, this.rim2.target, this.fill)
 
     // Dense fine fur up close: more, thinner shells.
-    this.tiger = new RunTiger(this.scene, undefined, { scale: SCALE, fur: mobile ? 5 : 10, furLen: 1.1, rim: 0 })
+    this.tiger = new RunTiger(this.scene, undefined, { scale: SCALE, fur: mobile ? 3 : 10, furLen: 1.1, rim: 0 })
 
     // Embers rising off the floor.
     const n = mobile ? 500 : 1100

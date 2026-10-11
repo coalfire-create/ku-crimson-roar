@@ -65,7 +65,7 @@ export class Symbols3D {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.5 : 1.75))
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.1 : 1.75))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 0.9
     this.scene = new THREE.Scene()
@@ -98,7 +98,7 @@ export class Symbols3D {
     rim.position.copy(T).add(new THREE.Vector3(4, 10, -16))
     rim.target.position.copy(T).add(new THREE.Vector3(0, 4, 0))
     this.scene.add(key, key.target, rim, rim.target)
-    this.tiger = new RunTiger(this.scene, undefined, { scale: 0.034, fur: mobile ? 3 : 6, furLen: 1.1, rim: 0.6 })
+    this.tiger = new RunTiger(this.scene, undefined, { scale: 0.034, fur: mobile ? 0 : 6, furLen: 1.1, rim: 0.6 })
     // Embers rising around it.
     const EN = 700
     const ep = new Float32Array(EN * 3)

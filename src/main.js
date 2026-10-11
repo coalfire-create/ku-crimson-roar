@@ -44,8 +44,64 @@ function splitChars(el) {
   })
 }
 
+// Upload every texture a scene uses (maps, shader uniforms, background) to
+// the GPU now, so none is uploaded mid-scroll: a big one stalls a phone for
+// a second the first time its chapter draws.
+function warmTextures(view) {
+  const { renderer, scene } = view
+  if (!renderer?.initTexture || !scene) return
+  const seen = new Set()
+  const add = (v) => v?.isTexture && !v.isRenderTargetTexture && v.image && seen.add(v)
+  scene.traverse((o) => {
+    for (const m of [].concat(o.material || [])) {
+      for (const k in m) add(m[k])
+      if (m.uniforms) for (const u of Object.values(m.uniforms)) add(u?.value)
+    }
+  })
+  add(scene.background)
+  for (const t of seen) {
+    try {
+      renderer.initTexture(t)
+    } catch {}
+  }
+}
+
+// Textures that finish loading later (photographs, the aerial) are uploaded
+// in the background, one per frame, before their chapter is reached.
+const warmQ = []
+const queued = new WeakSet()
+function scanTextures(views) {
+  for (const { renderer, scene } of views) {
+    if (!renderer?.initTexture || !scene) continue
+    scene.traverse((o) => {
+      for (const m of [].concat(o.material || [])) {
+        const cand = []
+        for (const k in m) cand.push(m[k])
+        if (m.uniforms) for (const u of Object.values(m.uniforms)) cand.push(u?.value)
+        for (const t of cand) {
+          if (!t?.isTexture || t.isRenderTargetTexture || !t.image || queued.has(t)) continue
+          const img = t.image
+          if (img instanceof HTMLImageElement && !(img.complete && img.naturalWidth)) continue
+          if (renderer.properties.get(t).__version === t.version) continue
+          queued.add(t)
+          warmQ.push([renderer, t])
+        }
+      }
+    })
+  }
+}
+function warmOne() {
+  const job = warmQ.shift()
+  if (!job) return
+  queued.delete(job[1])
+  try {
+    job[0].initTexture(job[1])
+  } catch {}
+}
+
 // A roar: a low growl swelling under a noise burst.
 let audio = null
+let roarNoise = null
 function roarSound() {
   audio ??= new (window.AudioContext || window.webkitAudioContext)()
   const a = audio
@@ -70,10 +126,13 @@ function roarSound() {
   lfo.connect(lg).connect(g.gain)
   o.connect(lp).connect(g).connect(a.destination)
   const n = a.createBufferSource()
-  const buf = a.createBuffer(1, a.sampleRate * 1.2, a.sampleRate)
-  const d = buf.getChannelData(0)
-  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2)
-  n.buffer = buf
+  // The noise burst is made once and reused (filling it is costly on phones).
+  if (!roarNoise) {
+    roarNoise = a.createBuffer(1, a.sampleRate * 1.2, a.sampleRate)
+    const d = roarNoise.getChannelData(0)
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2)
+  }
+  n.buffer = roarNoise
   const bp = a.createBiquadFilter()
   bp.type = 'bandpass'
   bp.frequency.value = 500
@@ -152,6 +211,8 @@ async function boot() {
   // straight on into the next chapter. Back at the top, it is ready again.
   const LEAP_DUR = 2.2
   let chapterReady = null
+  let chapterViews = []
+  let chapterRenders = []
   let introDone = false
   let leapRun = null
   let leapP = 0
@@ -248,6 +309,19 @@ async function boot() {
   // lifts on a scene that is already running smoothly.
   for (let t0 = performance.now(); !hero.tiger?.ready && performance.now() - t0 < 5000; ) await new Promise((r) => setTimeout(r, 50))
   await Promise.race([chapterReady, new Promise((r) => setTimeout(r, 6000))])
+  // With the campus fully built, put every chapter's textures on the GPU;
+  // whatever loads later is picked up in the background.
+  for (const v of chapterViews) warmTextures(v)
+  setInterval(() => scanTextures(chapterViews), 1200)
+  // And draw every chapter once, off screen: its first frame uploads all its
+  // geometry, which otherwise lands mid-scroll (a second's stall on phones
+  // as the campus first appears).
+  for (const v of chapterRenders) {
+    try {
+      v.render(1 / 60)
+    } catch {}
+    await new Promise((r) => requestAnimationFrame(r))
+  }
   for (let n = 0; n < 6; n++) await new Promise((r) => requestAnimationFrame(r))
   if (import.meta.env.DEV) window.__marks.lift = performance.now()
   /* intro: the pale screen wipes up, the eyes open, "Korea" rises */
@@ -280,6 +354,8 @@ async function boot() {
     const flight = new AnamFlight(document.getElementById('cvFlight'))
     const rivalry = new Rivalry(document.getElementById('cvRivalry'))
     const symbols = new Symbols3D(document.getElementById('cvSymbols'))
+    // All of 입실렌티's lineups, built now rather than at each act change.
+    heart.stage.prepare(LINEUP.acts, heart.renderer, heart.scene, heart.camera, heart.composer)
     if (import.meta.env.DEV) window.__flight = flight
     chapterReady = flight.terrainReady
     // The campus tiger's roar: the growl and a jolt through the frame.
@@ -297,6 +373,11 @@ async function boot() {
       } catch {}
     }
     if (import.meta.env.DEV) Object.assign(window, { __flight: flight, __fortress: fortress, __heart: heart, __gate: gate })
+
+    // Compile every chapter's shaders now, behind the loading screen, so no
+    // chapter stalls the first time it scrolls into view.
+    chapterViews = [hero, fortress, heart, flight, fields, symbols, gate]
+    for (const v of [fortress, heart, flight, fields, symbols]) v.renderer?.compileAsync?.(v.scene, v.camera).catch(() => {})
 
     let beat = 0
     const scenes = [
@@ -327,6 +408,7 @@ async function boot() {
         },
       },
     ]
+    chapterRenders = scenes.slice(1).map((s) => s.view)
     const io = new IntersectionObserver((es) => es.forEach((e) => (scenes.find((s) => s.el === e.target).on = e.isIntersecting)), { rootMargin: '5% 0px' })
     scenes.forEach((s) => io.observe(s.el))
     const progress = (el) => {
@@ -388,14 +470,14 @@ async function boot() {
         const on = k > 0 && k < 1
         if (top <= viewH * 0.5) current = i
         if (i === 3) {
-          // Into the campus: a crimson flash, then the camera drops out of the sky.
-          pin(s, top, on, `scale(${1 + (1 - k) * 0.06})`)
+          // Into the campus: a dip through darkness, then the camera drops out of the sky.
+          if (!MOBILE) pin(s, top, on, `scale(${1 + (1 - k) * 0.06})`)
           s.sticky.style.opacity = on ? ease(clamp01((k - 0.3) / 0.5)).toFixed(3) : ''
           flight.intro = 1 - k
           // A dip through darkness rather than a flash.
           prev.flash.style.opacity = '0'
           prev.shade.style.opacity = on ? (Math.sin(Math.PI * clamp01(k / 0.6)) * 0.8).toFixed(3) : '0'
-          if (on) prev.sticky.style.transform = `scale(${1 + k * 0.1})`
+          if (on && !MOBILE) prev.sticky.style.transform = `scale(${1 + k * 0.1})`
           reveal(s, k > 0.8)
           continue
         }
@@ -403,10 +485,17 @@ async function boot() {
         // settling from a slight zoom, while the last one drifts forward and
         // dims beneath it.
         const e = ease(clamp01((k - 0.05) / 0.85))
-        pin(s, top, on, `scale(${(1.06 - 0.06 * e).toFixed(4)})`)
-        s.sticky.style.opacity = on ? e.toFixed(3) : ''
-        s.sticky.style.filter = on && !MOBILE ? `blur(${((1 - e) * 6).toFixed(2)}px)` : ''
-        if (on) prev.sticky.style.transform = `scale(${(1 + k * 0.07).toFixed(4)})`
+        // Phones: the next chapter simply rises with the page as it fades in;
+        // nothing is moved from script, so touch scrolling stays native and
+        // smooth (script-driven movement lags a frame behind the finger).
+        if (MOBILE) {
+          s.sticky.style.opacity = on ? e.toFixed(3) : ''
+        } else {
+          pin(s, top, on, `scale(${(1.06 - 0.06 * e).toFixed(4)})`)
+          s.sticky.style.opacity = on ? e.toFixed(3) : ''
+          s.sticky.style.filter = on ? `blur(${((1 - e) * 6).toFixed(2)}px)` : ''
+          if (on) prev.sticky.style.transform = `scale(${(1 + k * 0.07).toFixed(4)})`
+        }
         prev.shade.style.opacity = on ? (ease(k) * 0.55).toFixed(3) : '0'
         s.flash.style.opacity = '0'
         // The finale's words wait until the doors have opened.
@@ -526,7 +615,10 @@ async function boot() {
         stageThumb.alt = `${a.name} 입실렌티 무대`
         gsap.fromTo(stageScreen, { opacity: 0, scale: 0.94 }, { opacity: 1, scale: 1, duration: 0.7, ease: 'expo.out', overwrite: true })
       }
-      gsap.fromTo(actEls.Name, { opacity: 0, scale: 1.25, filter: 'blur(14px)', letterSpacing: '0.2em' }, { opacity: 1, scale: 1, filter: 'blur(0px)', letterSpacing: '-0.04em', duration: 1.1, ease: 'expo.out', overwrite: true })
+      // (Phones: opacity and scale only; animated blur and letter-spacing
+      // repaint the whole huge word every frame.)
+      if (MOBILE) gsap.fromTo(actEls.Name, { opacity: 0, scale: 1.15 }, { opacity: 1, scale: 1, duration: 0.9, ease: 'expo.out', overwrite: true })
+      else gsap.fromTo(actEls.Name, { opacity: 0, scale: 1.25, filter: 'blur(14px)', letterSpacing: '0.2em' }, { opacity: 1, scale: 1, filter: 'blur(0px)', letterSpacing: '-0.04em', duration: 1.1, ease: 'expo.out', overwrite: true })
       gsap.fromTo([actEls.No, actEls.En, actEls.Sub], { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.8, delay: 0.15, stagger: 0.06, ease: 'expo.out', overwrite: true })
       // Every new act: the heart beats and the crowd roars with it.
       heart.pump()
@@ -893,6 +985,7 @@ async function boot() {
     }
 
     return (dt) => {
+      warmOne()
       transitions()
       heroTick(dt)
 

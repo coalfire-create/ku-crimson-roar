@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 // The 입실렌티 stage at the far end of the field, built after the real one:
 // silver scaffold towers either side carrying tall LED screens (here showing
@@ -106,9 +107,48 @@ function stripeTexture(a, b) {
   return t
 }
 
+// A dancer is built from dozens of small parts, each with an ink outline:
+// hundreds of draw calls per lineup. Here every joint's own parts (and their
+// outlines) are merged into one mesh per material, keeping the joints that
+// move separate.
+function compact(node) {
+  const buckets = new Map()
+  const drop = []
+  const m = new THREE.Matrix4()
+  const collect = (mesh, mat) => {
+    const g = (mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone()).applyMatrix4(mat)
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k)
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2))
+    const key = mesh.material.uuid
+    if (!buckets.has(key)) buckets.set(key, { mat: mesh.material, geos: [] })
+    buckets.get(key).geos.push(g)
+  }
+  for (const c of node.children) {
+    if (!c.isMesh) continue
+    c.updateMatrix()
+    collect(c, c.matrix)
+    for (const line of c.children) if (line.isMesh) (line.updateMatrix(), collect(line, m.multiplyMatrices(c.matrix, line.matrix)))
+    drop.push(c)
+  }
+  if (drop.length > 1) {
+    for (const c of drop) node.remove(c)
+    for (const { mat, geos } of buckets.values()) node.add(new THREE.Mesh(mergeGeometries(geos), mat))
+  }
+  for (const c of [...node.children]) if (!c.isMesh && !c.userData.keep) compact(c)
+}
+
+const MATS = {}
+const basic = (c) => (MATS[`b${c}`] ??= new THREE.MeshBasicMaterial({ color: c }))
+
 function dancer(ramp, look, skin = '#f3d2b8') {
-  const mat = (c, map, flat = false) => new THREE.MeshToonMaterial({ color: map ? '#ffffff' : c, map: map || null, gradientMap: ramp, flatShading: flat })
-  const ink = new THREE.MeshBasicMaterial({ color: '#1a0c10', side: THREE.BackSide })
+  // Materials are shared across every dancer (one per colour), so a whole
+  // lineup costs a handful of materials, not hundreds.
+  const mat = (c, map, flat = false) => {
+    if (map) return new THREE.MeshToonMaterial({ color: '#ffffff', map, gradientMap: ramp, flatShading: flat })
+    const k = `t${c}${flat ? 'f' : ''}`
+    return (MATS[k] ??= new THREE.MeshToonMaterial({ color: c, gradientMap: ramp, flatShading: flat }))
+  }
+  const ink = (MATS.ink ??= new THREE.MeshBasicMaterial({ color: '#1a0c10', side: THREE.BackSide }))
   const part = (geo, m, parent, outline = 1.06) => {
     const mesh = new THREE.Mesh(geo, m)
     parent.add(mesh)
@@ -120,7 +160,7 @@ function dancer(ramp, look, skin = '#f3d2b8') {
     return mesh
   }
   const flat = (geo, color, parent, x, y, z) => {
-    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }))
+    const m = new THREE.Mesh(geo, basic(color))
     m.position.set(x, y, z)
     parent.add(m)
     return m
@@ -285,6 +325,8 @@ function dancer(ramp, look, skin = '#f3d2b8') {
   mic.position.set(0, -0.28, 0.05)
   mic.rotation.x = 0.4
   limbs[1].el.add(mic)
+  mic.userData.keep = true
+  compact(root)
   return { root, hips, chest, neck, limbs, mic }
 }
 
@@ -351,8 +393,9 @@ export class Stage {
     for (const s of [-1, 1]) add(new THREE.PlaneGeometry(2.6, 18), new THREE.MeshBasicMaterial({ map: bt, color: '#c8c8c8' }), s * 20.8, 10, 1.4)
     // Header LED over the backline: the festival and the act.
     this.ledCanvas = document.createElement('canvas')
-    this.ledCanvas.width = 2048
-    this.ledCanvas.height = 300
+    // Half size on phones: it is redrawn and re-uploaded at every act change.
+    this.ledCanvas.width = mobile ? 1024 : 2048
+    this.ledCanvas.height = mobile ? 150 : 300
     this.ledTex = new THREE.CanvasTexture(this.ledCanvas)
     this.ledTex.colorSpace = THREE.SRGBColorSpace
     add(new THREE.PlaneGeometry(17, 2.5), new THREE.MeshBasicMaterial({ map: this.ledTex, color: '#c0c0c0' }), 0, 15.6, -4.5)
@@ -387,14 +430,15 @@ export class Stage {
     c.fillStyle = '#5a0614'
     c.fillRect(0, 0, W, H)
     c.fillStyle = 'rgba(0,0,0,0.3)'
-    for (let x = 0; x < W; x += 10) c.fillRect(x, 0, 2, H)
-    for (let y = 0; y < H; y += 10) c.fillRect(0, y, W, 2)
+    const pitch = Math.max(5, Math.round(H / 30))
+    for (let x = 0; x < W; x += pitch) c.fillRect(x, 0, Math.max(1, pitch / 5), H)
+    for (let y = 0; y < H; y += pitch) c.fillRect(0, y, W, Math.max(1, pitch / 5))
     c.textAlign = 'center'
     c.textBaseline = 'middle'
     c.fillStyle = '#fff'
     const text = act ? `IPSELENTI 2026  ·  ${act.en}` : 'IPSELENTI 2026'
     // Fit the line to the screen: long names step the type down.
-    let size = 150
+    let size = Math.round(H * 0.5)
     c.font = `900 ${size}px "Pretendard Variable", Pretendard, sans-serif`
     const w = c.measureText(text).width
     if (w > W * 0.9) ((size = Math.floor((size * W * 0.9) / w)), (c.font = `900 ${size}px "Pretendard Variable", Pretendard, sans-serif`))
@@ -405,17 +449,17 @@ export class Stage {
     this.ledTex.needsUpdate = true
   }
 
-  setAct(act) {
-    for (const d of this.cast) this.group.remove(d.root)
-    this.cast = []
-    if (!act) act = { en: '고려대 응원단', style: 'dance', cheer: true }
-    this.#drawLed(act)
-    this.lead = null
-    this.style = act.style || 'dance'
-    const looks = LOOKS[act.en] || [{ top: BK }]
+  // Every act's performers, built once (behind the loading screen) and kept;
+  // changing acts only shows one lineup and hides the last, so the switch
+  // never stalls a frame.
+  #castFor(key, act) {
+    this.casts ??= {}
+    if (this.casts[key]) return this.casts[key]
+    const looks = LOOKS[key] || [{ top: BK }]
     const withLead = !!looks[0].lead
     const n = looks.length
-    looks.forEach((look, i) => {
+    const style = act.style || 'dance'
+    const cast = looks.map((look, i) => {
       const d = dancer(this.ramp, look)
       // Formation: a shallow V, centred; a lead stands out front of the line.
       const slot = look.lead ? 0 : withLead ? i - 1 - (n - 2) / 2 : i - (n - 1) / 2
@@ -426,10 +470,37 @@ export class Stage {
       d.phase = i * 0.37
       d.lead = look.lead || n <= 2 || (!withLead && i === Math.floor((n - 1) / 2))
       d.backup = withLead && !look.lead
-      d.mic.visible = !act.cheer && (d.lead || this.style === 'hiphop' || this.style === 'ballad')
+      d.mic.visible = !act.cheer && (d.lead || style === 'hiphop' || style === 'ballad')
+      d.root.visible = false
       this.group.add(d.root)
-      this.cast.push(d)
+      return d
     })
+    return (this.casts[key] = cast)
+  }
+
+  // Build every lineup up front; acts: the night's acts (style per act).
+  // Then draw them all once (off screen) so their buffers are on the GPU.
+  prepare(acts, renderer, scene, camera, composer) {
+    this.#castFor('고려대 응원단', { style: 'dance', cheer: true })
+    for (const a of acts) this.#castFor(a.en, a)
+    if (!renderer) return
+    const shown = Object.values(this.casts).flat()
+    const keep = shown.map((d) => d.root.visible)
+    for (const d of shown) d.root.visible = true
+    // Through the same post-processing as the real frames, so the shader
+    // variants it compiles are the ones actually used.
+    if (composer) composer.render()
+    else renderer.render(scene, camera)
+    shown.forEach((d, i) => (d.root.visible = keep[i]))
+  }
+
+  setAct(act) {
+    for (const d of this.cast) d.root.visible = false
+    if (!act) act = { en: '고려대 응원단', style: 'dance', cheer: true }
+    this.#drawLed(act)
+    this.style = act.style || 'dance'
+    this.cast = this.#castFor(act.en, act)
+    for (const d of this.cast) d.root.visible = true
     this.lead = this.cast.find((d) => d.lead) || this.cast[0]
     this.t = 0
   }
@@ -437,6 +508,10 @@ export class Stage {
   // The tower screens' live close-up: a long lens on the lead's head and shoulders.
   renderLive(renderer, scene) {
     if (!this.lead) return
+    // The close-up needn't refresh every frame: every 2nd on desktop, every
+    // 3rd on phones (it is a second full render of the scene).
+    this.liveN = ((this.liveN ?? 0) + 1) % (innerWidth < 760 ? 3 : 2)
+    if (this.liveN) return
     const p = this.lead.neck.getWorldPosition(new THREE.Vector3())
     const k = this.lead.root.getWorldScale(new THREE.Vector3()).y
     this.liveCam.position.set(p.x + Math.sin(this.t * 0.3) * 0.4 * k, p.y + 0.12 * k, p.z + 3.6 * k)

@@ -20,7 +20,7 @@ export class Heart {
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
     this.renderer.setClearColor(0x000000, 0)
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.5 : 2))
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.1 : 2))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100)
