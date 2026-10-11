@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { pixelRatio, tier } from '../device.js'
 
 // Frontiers: three fields only 고려대 leads in, one after another as the
 // visitor scrolls (progress 0..1, a third each).
@@ -494,7 +495,7 @@ export class Frontiers {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.1 : 1.5))
+    this.renderer.setPixelRatio(pixelRatio(1.1, 1.5))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color('#05060c')

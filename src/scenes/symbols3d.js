@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { RunTiger } from './runTiger.js'
+import { pixelRatio, tier } from '../device.js'
 
 // 고려대의 상징, three full-screen sets along one camera path:
 //  1. 크림슨 — a vast banner of crimson silk billowing in the wind, light
@@ -65,7 +66,7 @@ export class Symbols3D {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.1 : 1.75))
+    this.renderer.setPixelRatio(pixelRatio(1.1, 1.75))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 0.9
     this.scene = new THREE.Scene()

@@ -5,6 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { pixelRatio, tier } from '../device.js'
 
 // The Fortress of Intellect: 본관, the 1934 granite gothic Main Hall, through
 // one year. Scrolling (progress 0..1) circles it slowly from spring blossom
@@ -170,7 +171,7 @@ export class Fortress {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.15 : 1.75))
+    this.renderer.setPixelRatio(pixelRatio(1.15, 1.75))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.0
     this.renderer.shadowMap.enabled = true
@@ -190,7 +191,7 @@ export class Fortress {
     // from the lawn that only come on after dark.
     this.sun = new THREE.DirectionalLight('#fff', 3)
     this.sun.castShadow = true
-    this.sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048)
+    this.sun.shadow.mapSize.setScalar(mobile ? tier(1024, 512) : 2048)
     Object.assign(this.sun.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, near: 10, far: 400 })
     this.sun.shadow.bias = -0.0005
     this.sun.shadow.normalBias = 0.4
@@ -245,7 +246,7 @@ export class Fortress {
     this.#plantTrees()
     this.#buildCampus()
     // Particles drifting down through the whole scene.
-    const n = mobile ? 900 : 2200
+    const n = mobile ? tier(900, 450) : 2200
     const fp = new Float32Array(n * 3)
     const fs = new Float32Array(n * 4)
     for (let i = 0; i < n; i++) {

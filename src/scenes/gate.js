@@ -6,6 +6,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { RunTiger } from './runTiger.js'
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { pixelRatio, tier } from '../device.js'
 
 // Enter the Anam: the letter, then the roar. A crimson envelope sealed with
 // gold wax floats in the dark. Scrolling (progress 0..1) breaks the seal,
@@ -113,7 +114,7 @@ export class Gate {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.1 : 1.75))
+    this.renderer.setPixelRatio(pixelRatio(1.1, 1.75))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 0.9
     this.scene = new THREE.Scene()
@@ -215,7 +216,7 @@ export class Gate {
     eg.setAttribute('position', new THREE.BufferAttribute(ep, 3))
     this.embers = new THREE.Points(eg, new THREE.PointsMaterial({ color: '#ff8a5a', size: 0.06, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }))
     this.scene.add(this.embers)
-    const CN = mobile ? 300 : 700
+    const CN = mobile ? tier(300, 160) : 700
     this.confetti = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.09, 0.16), new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.5, metalness: 0.3 }), CN)
     const col = new THREE.Color()
     this.bits = []
@@ -489,7 +490,7 @@ export class Gate {
       const rm = new THREE.Mesh(new THREE.ShapeGeometry(ridge), ridgeM)
       rm.position.set(0, 0, -300)
       st.add(rm)
-      const CL = mobile ? 900 : 2200
+      const CL = mobile ? tier(900, 450) : 2200
       const cl = new Float32Array(CL * 3)
       for (let i = 0; i < CL; i++) {
         const x = (Math.random() - 0.5) * 820
@@ -590,7 +591,7 @@ export class Gate {
     // The crowd: thousands of students filling 중앙광장 between the terrace
     // and 본관, each holding up a phone light. They sway; a wave runs through
     // them; at the end every light turns crimson and rises.
-    const CN2 = mobile ? 3500 : 8000
+    const CN2 = mobile ? tier(3500, 1600) : 8000
     const cp = new Float32Array(CN2 * 3)
     const cs = new Float32Array(CN2)
     for (let i = 0; i < CN2; i++) {
@@ -643,7 +644,7 @@ export class Gate {
     }
     st.add(hg)
     // Sparks rising.
-    const SN = mobile ? 400 : 1000
+    const SN = mobile ? tier(400, 200) : 1000
     const sp = new Float32Array(SN * 3)
     for (let i = 0; i < SN; i++) sp.set([(Math.random() - 0.5) * 60, Math.random() * 40, -Math.random() * 40], i * 3)
     const sg = new THREE.BufferGeometry()

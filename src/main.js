@@ -10,6 +10,7 @@ import { Hero3D } from './scenes/hero3d.js'
 import { INFO } from './data/info.js'
 import { LINEUP } from './data/lineup.js'
 import { FRONTIERS } from './data/frontiers.js'
+import { Ambience } from './ambience.js'
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
 const ease = (t) => t * t * (3 - 2 * t)
@@ -142,15 +143,75 @@ function roarSound() {
   for (const s of [o, lfo, n]) (s.start(t), s.stop(t + 1.35))
 }
 
+// Ambience: each chapter has its sound; the mix follows what is on screen.
+const amb = new Ambience()
+const AMB = {
+  hero: { drone: 0.6, wind: 0.25 },
+  fortress: { wind: 0.6, drone: 0.25 },
+  pride: { crowd: 0.8, beat: 1 },
+  frontier: { crickets: 0.8, wind: 0.3 },
+  fields: { drone: 0.4, crickets: 0.2 },
+  rivalry: { crowd: 1, claps: 0.9 },
+  symbols: { drone: 0.45, wind: 0.2 },
+  gate: { crowd: 0.35, drone: 0.45, crickets: 0.25 },
+}
+function setupSound() {
+  const btn = document.getElementById('soundBtn')
+  const secs = Object.keys(AMB).map((id) => [id, document.getElementById(id)])
+  btn.addEventListener('click', () => {
+    if (amb.on) amb.disable()
+    else amb.enable((audio ??= new (window.AudioContext || window.webkitAudioContext)()))
+    btn.classList.toggle('is-on', amb.on)
+    btn.setAttribute('aria-pressed', amb.on)
+  })
+  setInterval(() => {
+    if (!amb.on) return
+    const vh = innerHeight
+    const lv = {}
+    for (const [id, el] of secs) {
+      const r = el.getBoundingClientRect()
+      const w = Math.max(0, Math.min(r.bottom, vh) - Math.max(r.top, 0)) / vh
+      if (!w) continue
+      for (const [k, v] of Object.entries(AMB[id])) lv[k] = Math.max(lv[k] || 0, v * w)
+      // The makgeolli pour, while the kettle tips (late in the symbols run).
+      if (id === 'symbols') {
+        const p = -r.top / Math.max(1, r.height - vh)
+        if (p > 0.74 && p < 0.95) ((lv.pour = w), (lv.crickets = Math.max(lv.crickets || 0, 0.35 * w)))
+      }
+    }
+    amb.mix(lv)
+  }, 250)
+}
+
 async function boot() {
+  setupSound()
   // The opening needs only its shader; every later chapter loads while the loader counts.
   const chapterMods = Promise.all([import('./scenes/fortress.js'), import('./scenes/heart.js'), import('./scenes/anam.js'), import('./scenes/gate.js'), import('./scenes/frontiers.js')])
 
   const num = document.getElementById('loaderNum')
   const bar = document.getElementById('loaderBar')
-  const c = { v: 0 }
-  const paint = () => ((num.textContent = Math.round(c.v)), (bar.style.transform = `scaleX(${c.v / 100})`))
-  const tween = gsap.to(c, { v: 100, duration: 1.4, ease: 'power2.inOut', onUpdate: paint })
+  // Loading progress follows the real stages (fonts, chapters, the tiger,
+  // the campus, the warm-up), easing toward each; the emblem fills from the
+  // foot up with it, and lines of the school's story turn over beneath.
+  const fill = document.getElementById('loaderFill')
+  const lineEl = document.getElementById('loaderLine')
+  const c = { v: 0, target: 8 }
+  const setLoad = (v) => (c.target = Math.max(c.target, v))
+  const paint = () => {
+    c.v += (c.target - c.v) * 0.06
+    num.textContent = Math.round(c.v)
+    bar.style.transform = `scaleX(${c.v / 100})`
+    fill.style.clipPath = `inset(${(100 - c.v).toFixed(1)}% 0 0 0)`
+  }
+  gsap.ticker.add(paint)
+  const LINES = ['1905 · 보성전문학교', '1934 · 안암의 언덕', '1960. 4. 18', '자유 · 정의 · 진리', '2026 · 다시, 붉은 물결']
+  let lineN = 0
+  const lineTimer = setInterval(() => {
+    lineEl.style.opacity = '0'
+    setTimeout(() => ((lineEl.textContent = LINES[++lineN % LINES.length]), (lineEl.style.opacity = '1')), 400)
+  }, 1500)
+  // Creeps on between stages, so the bar never looks stuck.
+  const creep = setInterval(() => setLoad(Math.min(c.target + 1.5, 94)), 400)
   await Promise.race([
     Promise.all([
       document.fonts.load('900 100px "Noto Serif KR"', '高麗'),
@@ -160,6 +221,7 @@ async function boot() {
     ]),
     new Promise((r) => setTimeout(r, 2500)),
   ])
+  setLoad(18)
 
   // Mobile browsers change innerHeight as the address bar slides; only take a
   // new viewport height when the width changes.
@@ -298,17 +360,22 @@ async function boot() {
     }
   })
 
-  await tween
   // Build every chapter now, behind the loader: done later, it stalled the
   // opening (the tiger-to-shield morph) for most of a second.
   if (import.meta.env.DEV) window.__marks = { tween: performance.now() }
-  chapterTick = setupChapters(await chapterMods)
+  const mods = await chapterMods
+  setLoad(35)
+  await new Promise((r) => requestAnimationFrame(r))
+  chapterTick = setupChapters(mods)
+  setLoad(55)
   if (import.meta.env.DEV) window.__marks.chapters = performance.now()
   // Hold the curtain until the tiger has loaded and everything behind it has
   // drawn a few frames (shaders compiled, buffers uploaded), so the curtain
   // lifts on a scene that is already running smoothly.
   for (let t0 = performance.now(); !hero.tiger?.ready && performance.now() - t0 < 5000; ) await new Promise((r) => setTimeout(r, 50))
+  setLoad(70)
   await Promise.race([chapterReady, new Promise((r) => setTimeout(r, 6000))])
+  setLoad(85)
   // With the campus fully built, put every chapter's textures on the GPU;
   // whatever loads later is picked up in the background.
   for (const v of chapterViews) warmTextures(v)
@@ -323,6 +390,17 @@ async function boot() {
     await new Promise((r) => requestAnimationFrame(r))
   }
   for (let n = 0; n < 6; n++) await new Promise((r) => requestAnimationFrame(r))
+  // Fill to the top, let the full emblem glow a beat, then lift the curtain.
+  clearInterval(creep)
+  setLoad(100)
+  while (c.v < 99) await new Promise((r) => requestAnimationFrame(r))
+  c.v = 100
+  paint()
+  clearInterval(lineTimer)
+  lineEl.textContent = '자유 · 정의 · 진리'
+  lineEl.style.opacity = '1'
+  await new Promise((r) => setTimeout(r, 350))
+  gsap.ticker.remove(paint)
   if (import.meta.env.DEV) window.__marks.lift = performance.now()
   /* intro: the pale screen wipes up, the eyes open, "Korea" rises */
   const intro = new Promise((done) =>
@@ -984,7 +1062,31 @@ async function boot() {
       })
     }
 
+    // A phone that still struggles after the static tier check steps every
+    // chapter down once (resolution ×0.8) and stays there; the campus film
+    // keeps its own governor.
+    const gov = { t: 0, n: 0, slow: 0, done: false }
+    const govern = (dt) => {
+      if (gov.done || document.hidden || dt > 0.25) return
+      gov.t += dt
+      gov.n++
+      if (gov.t < 2) return
+      gov.slow = gov.t / gov.n > 1 / 32 ? gov.slow + 1 : 0
+      gov.t = gov.n = 0
+      if (gov.slow < 2) return
+      gov.done = true
+      document.documentElement.classList.add('lite')
+      for (const s of [hero, fortress, heart, fields, symbols, gate]) {
+        if (!s?.renderer) continue
+        const pr = s.renderer.getPixelRatio() * 0.8
+        s.renderer.setPixelRatio(pr)
+        s.composer?.setPixelRatio?.(pr)
+        s.resize?.()
+      }
+    }
+
     return (dt) => {
+      govern(dt)
       warmOne()
       transitions()
       heroTick(dt)

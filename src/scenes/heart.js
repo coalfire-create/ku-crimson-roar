@@ -6,6 +6,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { Crowd } from './crowd.js'
 import { Stage } from './stage.js'
+import { pixelRatio, tier } from '../device.js'
 
 // The Crimson Core: a faceted ruby heart beating in the dark. Every pump
 // (Space, click, tap) swells it, fires a ring of lava embers and a drum hit,
@@ -20,7 +21,7 @@ export class Heart {
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
     this.renderer.setClearColor(0x000000, 0)
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.1 : 2))
+    this.renderer.setPixelRatio(pixelRatio(1.1, 2))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100)

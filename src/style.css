@@ -72,19 +72,48 @@ button {
   z-index: 100;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: var(--gutter);
-  background: #f4eee6;
-  color: #1a0508;
+  background: radial-gradient(60% 50% at 50% 45%, #2a0a10, #0d0508 70%);
+  color: #f4eee6;
   clip-path: inset(0 0 0 0);
 }
-.loader__glyph {
+.loader__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+}
+.loader__crest {
+  position: relative;
+  height: min(34vh, 260px);
+  aspect-ratio: 593 / 797;
+}
+.loader__crest img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.loader__crest-dim {
+  filter: saturate(0.25) brightness(0.3);
+  opacity: 0.6;
+}
+.loader__crest-fill {
+  clip-path: inset(100% 0 0 0);
+  filter: drop-shadow(0 0 24px rgba(255, 60, 50, 0.55));
+}
+.loader__line {
+  min-height: 1.6em;
   font-family: 'Noto Serif KR', serif;
-  font-weight: 900;
-  font-size: clamp(120px, 26vw, 420px);
-  line-height: 1;
-  letter-spacing: -0.02em;
-  color: var(--blood);
+  font-size: clamp(15px, 1.4vw, 19px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(244, 238, 230, 0.85);
+  transition: opacity 0.4s;
 }
 .loader__foot {
   display: flex;
@@ -92,11 +121,12 @@ button {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.3em;
+  color: rgba(244, 238, 230, 0.7);
 }
 .loader__bar {
   margin-top: 16px;
   height: 2px;
-  background: rgba(26, 5, 8, 0.12);
+  background: rgba(244, 238, 230, 0.12);
 }
 .loader__bar span {
   display: block;
@@ -2471,4 +2501,55 @@ button.pill:not([class*='pill--']) {
   width: 100%;
   margin-top: 14px;
   pointer-events: auto;
+}
+
+/* Sound toggle: a speaker, its waves only while the ambience plays. */
+.sound-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(244, 238, 230, 0.3);
+  border-radius: 50%;
+  background: rgba(20, 8, 10, 0.35);
+  color: #f4eee6;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: border-color 0.3s, background 0.3s;
+}
+.sound-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sound-btn svg path:first-child {
+  fill: currentColor;
+}
+.sound-btn .w {
+  opacity: 0.25;
+  transition: opacity 0.3s;
+}
+.sound-btn.is-on {
+  border-color: rgba(220, 40, 60, 0.8);
+  background: rgba(165, 0, 52, 0.45);
+}
+.sound-btn.is-on .w {
+  opacity: 1;
+  animation: soundPulse 1.2s ease-in-out infinite;
+}
+@keyframes soundPulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Lite tier: glass panels drop their blur (costly to composite on weak GPUs). */
+.lite * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }

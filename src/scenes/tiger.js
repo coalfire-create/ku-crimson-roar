@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { drawTigerMask } from './tigerMask.js'
+import { pixelRatio, tier } from '../device.js'
 
 // The Awakening: a tiger's face made of embers, smouldering in the dark.
 // Its eyes open with the intro (open), blink now and then (blink), and
@@ -199,7 +200,7 @@ export class Tiger {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.5 : 1.75))
+    this.renderer.setPixelRatio(pixelRatio(1.5, 1.75))
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 200)
     this.camera.position.set(0, 0, 16)

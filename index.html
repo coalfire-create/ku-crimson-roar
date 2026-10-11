@@ -23,7 +23,14 @@
   </head>
   <body>
     <div class="loader" id="loader">
-      <span class="loader__glyph">高麗</span>
+      <!-- The emblem fills with crimson from the foot up as the site loads. -->
+      <div class="loader__center">
+        <div class="loader__crest" aria-hidden="true">
+          <img class="loader__crest-dim" src="/brand/ku-emblem.png" alt="" />
+          <img class="loader__crest-fill" id="loaderFill" src="/brand/ku-emblem.png" alt="" />
+        </div>
+        <p class="loader__line" id="loaderLine">1905 · 보성전문학교</p>
+      </div>
       <div class="loader__foot">
         <span>KOREA UNIVERSITY</span>
         <span id="loaderNum">0</span>
@@ -50,6 +57,9 @@
         <a href="#gate">입학</a>
       </nav>
       <div class="nav__right">
+        <button type="button" class="sound-btn" id="soundBtn" aria-label="소리 켜기" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path class="w" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" /></svg>
+        </button>
         <button type="button" class="vs-btn" id="vsBtn" aria-label="VS 모드">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 3C11 4 5 10 4 20l2 1c1-3 3-6 5-8-1 3-1 5 0 7 5-2 8-7 9-17z" /></svg>
         </button>

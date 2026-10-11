@@ -6,6 +6,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { RunTiger } from './runTiger.js'
+import { pixelRatio, tier } from '../device.js'
 
 // The Awakening: the real tiger stands in the dark, lit by one warm key light
 // and a crimson rim. It breathes (its own idle clip) and watches the pointer.
@@ -102,7 +103,7 @@ export class Hero3D {
     this.canvas = canvas
     const mobile = innerWidth < 760
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.25 : 1.75))
+    this.renderer.setPixelRatio(pixelRatio(1.25, 1.75))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.0
     this.renderer.shadowMap.enabled = true
@@ -145,10 +146,10 @@ export class Hero3D {
     this.scene.add(this.key, this.key.target, this.rim, this.rim.target, this.rim2, this.rim2.target, this.fill)
 
     // Dense fine fur up close: more, thinner shells.
-    this.tiger = new RunTiger(this.scene, undefined, { scale: SCALE, fur: mobile ? 3 : 10, furLen: 1.1, rim: 0 })
+    this.tiger = new RunTiger(this.scene, undefined, { scale: SCALE, fur: mobile ? tier(3, 0) : 10, furLen: 1.1, rim: 0 })
 
     // Embers rising off the floor.
-    const n = mobile ? 500 : 1100
+    const n = mobile ? tier(500, 250) : 1100
     const pos = new Float32Array(n * 3)
     const seed = new Float32Array(n * 4)
     for (let i = 0; i < n; i++) {
@@ -173,7 +174,7 @@ export class Hero3D {
     }
 
     // Multisampled, so each fur strand's soft edge (alpha to coverage) survives.
-    this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { samples: mobile ? 2 : 4, type: THREE.HalfFloatType }))
+    this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { samples: mobile ? tier(2, 0) : 4, type: THREE.HalfFloatType }))
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.45, 0.6, 0.85)
     this.composer.addPass(this.bloom)

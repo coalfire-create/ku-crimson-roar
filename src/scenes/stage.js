@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { tier } from '../device.js'
 
 // The 입실렌티 stage at the far end of the field, built after the real one:
 // silver scaffold towers either side carrying tall LED screens (here showing
@@ -510,7 +511,7 @@ export class Stage {
     if (!this.lead) return
     // The close-up needn't refresh every frame: every 2nd on desktop, every
     // 3rd on phones (it is a second full render of the scene).
-    this.liveN = ((this.liveN ?? 0) + 1) % (innerWidth < 760 ? 3 : 2)
+    this.liveN = ((this.liveN ?? 0) + 1) % (innerWidth < 760 ? tier(3, 4) : 2)
     if (this.liveN) return
     const p = this.lead.neck.getWorldPosition(new THREE.Vector3())
     const k = this.lead.root.getWorldScale(new THREE.Vector3()).y

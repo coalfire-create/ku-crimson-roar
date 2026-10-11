@@ -23,6 +23,7 @@ import { loadAerial } from './aerial.js'
 import { AnimeSky, DepthRenderPass, InkPass, Students } from './anime.js'
 import { buildTrees } from './trees.js'
 import { AER, AER_GLSL, NIGHT, FOCUS, buildingMaterial, STYLE as BST, offsetPoly, wallUV, slopeUV, tagB } from './materials.js'
+import { pixelRatio, tier } from '../device.js'
 
 // A flight over the whole Anam campus of Korea University, built only from
 // free open data: OpenStreetMap footprints, land use and trees (© OSM
@@ -307,7 +308,7 @@ export class AnamFlight {
   constructor(canvas) {
     this.canvas = canvas
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1 : 1.5))
+    this.renderer.setPixelRatio(pixelRatio(1, 1.5))
     // Neutral tone mapping keeps colours clean and saturated, as painted.
     this.renderer.toneMapping = THREE.NeutralToneMapping
     // Bright and airy, like a painted anime background.
@@ -935,7 +936,7 @@ export class AnamFlight {
       return { box: [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)], inside: polyIn(poly) }
     }
     const lawns = [lawn(DATA.landmarks.plazaRing), lawn(DATA.landmarks.plazaRing), ...WORLD.areas.filter((a) => a.k === 'grass' && a.p.every(inBox)).map((a) => lawn(a.p))]
-    this.students = new Students(this.scene, { polylines, lawns, clear: (x, z) => this.wallF.dist(x, z), groundAt: (x, z) => this.groundAt(x, z), walkers: MOBILE ? 240 : 650, sitters: MOBILE ? 90 : 260, near: (this.shows || this.targets || []).map((t) => (t.shot ? [t.shot.cx, t.shot.cz] : [t.anchor.x, t.anchor.z])), extra: MOBILE ? 120 : 320 })
+    this.students = new Students(this.scene, { polylines, lawns, clear: (x, z) => this.wallF.dist(x, z), groundAt: (x, z) => this.groundAt(x, z), walkers: MOBILE ? tier(240, 130) : 650, sitters: MOBILE ? tier(90, 45) : 260, near: (this.shows || this.targets || []).map((t) => (t.shot ? [t.shot.cx, t.shot.cz] : [t.anchor.x, t.anchor.z])), extra: MOBILE ? tier(120, 50) : 320 })
   }
 
   // Where the film is: the map (before the first shot), which shot and how
@@ -1453,7 +1454,7 @@ export class AnamFlight {
   // Golden motes drifting in the air about the hall in shot, like light in
   // an illustrated tale.
   #buildSparkles() {
-    const n = MOBILE ? 220 : 520
+    const n = MOBILE ? tier(220, 110) : 520
     const p = new Float32Array(n * 3)
     const sd = new Float32Array(n)
     for (let i = 0; i < n; i++) {
@@ -2391,7 +2392,7 @@ export class AnamFlight {
     if (A.scale < 1 || A.slow < 2) return
     const next = 0.85
     A.scale = next
-    const pr = Math.min(devicePixelRatio, MOBILE ? 1.25 : 1.5) * next
+    const pr = pixelRatio(1.25, 1.5) * next
     this.renderer.setPixelRatio(pr)
     this.composer.setPixelRatio(pr)
     this.resize()
