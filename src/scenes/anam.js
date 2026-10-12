@@ -54,7 +54,7 @@ const MOBILE = innerWidth < 760
 // camera move (a crane up from the lawn, a slow push in, an arc round the
 // hall), joined by quick dips to black; then the camera rises over the
 // whole campus at dusk. The tiger is the film's mascot, waiting in shot.
-const SHOWS_START = 0.1
+const SHOWS_START = 0.13
 // Camera move per shot, in landmark order.
 const MOVES = ['crane', 'orbit', 'dolly', 'orbit', 'crane', 'dolly', 'orbit', 'crane', 'dolly']
 const TOUR_END = 0.9
@@ -426,7 +426,11 @@ export class AnamFlight {
     this.sun.shadow.bias = -0.0004
     this.sun.shadow.normalBias = 0.6
     this.hemi = new THREE.HemisphereLight('#aac6ea', '#6a6450', 1.25)
-    this.scene.add(this.sun, this.sun.target, this.hemi)
+    // The landmark in shot is floodlit, as the campus lights its halls at
+    // night: its stone and outline read clearly against the dark.
+    this.flood = new THREE.SpotLight('#ffe8cc', 0, 0, 0.6, 0.8, 0)
+    this.floodAt = new THREE.Vector3()
+    this.scene.add(this.sun, this.sun.target, this.hemi, this.flood, this.flood.target)
   }
 
   // Ground: what each spot is made of, from OSM (roads, walks, lawns and
@@ -994,7 +998,8 @@ export class AnamFlight {
     const pos = new THREE.Vector3(s.cx + Math.sin(a) * R, s.base + h, s.cz + Math.cos(a) * R)
     pos.y = Math.max(pos.y, this.groundAt(pos.x, pos.z) + 2)
     const right = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a))
-    const look = new THREE.Vector3(s.cx, s.base + ly, s.cz).addScaledVector(right, this.portrait ? 0 : -R * 0.12)
+    // On a wide screen the hall sits right of centre, clear of the caption.
+    const look = new THREE.Vector3(s.cx, s.base + ly, s.cz).addScaledVector(right, this.portrait ? 0 : -R * 0.2)
     return { pos, look, a }
   }
 
@@ -2604,6 +2609,18 @@ export class AnamFlight {
     for (const t of this.targets) t.near = 0
     if (this.shows && !this.free && !sch.map && sch.up < 0.3)
       this.shows[sch.i].near = THREE.MathUtils.smoothstep(sch.k, 0.06, 0.18) * (sch.i === this.shows.length - 1 ? 1 : 1 - THREE.MathUtils.smoothstep(sch.k, 0.9, 0.97)) * (1 - sch.up / 0.3)
+    // Floodlight on the landmark in shot, from just above the camera.
+    const lit = this.shows && !this.free && !sch.map ? (1 - sch.up) * (1 - (this.cut ?? 0)) : 0
+    this.flood.intensity = 1.7 * lit
+    if (lit > 0) {
+      const sh = this.shows[sch.i].shot
+      this.floodAt.set(sh.cx, sh.base + sh.hl, sh.cz)
+      this.flood.target.position.copy(this.floodAt)
+      this.flood.position.copy(this.camera.position).lerp(this.floodAt, 0.15)
+      this.flood.position.y += 25
+      const span = Math.max(sh.x1 - sh.x0, sh.z1 - sh.z0, 20)
+      this.flood.angle = Math.min(1.1, Math.atan((span * 0.75 + 12) / this.flood.position.distanceTo(this.floodAt)))
+    }
     this.bloom.strength = 0.25 + NIGHT.value * 0.55
     this.#adapt(dt)
     this.composer.render()

@@ -191,25 +191,15 @@ async function boot() {
   const num = document.getElementById('loaderNum')
   const bar = document.getElementById('loaderBar')
   // Loading progress follows the real stages (fonts, chapters, the tiger,
-  // the campus, the warm-up), easing toward each; the emblem fills from the
-  // foot up with it, and lines of the school's story turn over beneath.
-  const fill = document.getElementById('loaderFill')
-  const lineEl = document.getElementById('loaderLine')
+  // the campus, the warm-up), easing toward each.
   const c = { v: 0, target: 8 }
   const setLoad = (v) => (c.target = Math.max(c.target, v))
   const paint = () => {
     c.v += (c.target - c.v) * 0.06
     num.textContent = Math.round(c.v)
     bar.style.transform = `scaleX(${c.v / 100})`
-    fill.style.clipPath = `inset(${(100 - c.v).toFixed(1)}% 0 0 0)`
   }
   gsap.ticker.add(paint)
-  const LINES = ['1905 · 보성전문학교', '1934 · 안암의 언덕', '1960. 4. 18', '자유 · 정의 · 진리', '2026 · 다시, 붉은 물결']
-  let lineN = 0
-  const lineTimer = setInterval(() => {
-    lineEl.style.opacity = '0'
-    setTimeout(() => ((lineEl.textContent = LINES[++lineN % LINES.length]), (lineEl.style.opacity = '1')), 400)
-  }, 1500)
   // Creeps on between stages, so the bar never looks stuck.
   const creep = setInterval(() => setLoad(Math.min(c.target + 1.5, 94)), 400)
   await Promise.race([
@@ -390,15 +380,12 @@ async function boot() {
     await new Promise((r) => requestAnimationFrame(r))
   }
   for (let n = 0; n < 6; n++) await new Promise((r) => requestAnimationFrame(r))
-  // Fill to the top, let the full emblem glow a beat, then lift the curtain.
+  // Count to the top, hold a beat, then lift the curtain.
   clearInterval(creep)
   setLoad(100)
   while (c.v < 99) await new Promise((r) => requestAnimationFrame(r))
   c.v = 100
   paint()
-  clearInterval(lineTimer)
-  lineEl.textContent = '자유 · 정의 · 진리'
-  lineEl.style.opacity = '1'
   await new Promise((r) => setTimeout(r, 350))
   gsap.ticker.remove(paint)
   if (import.meta.env.DEV) window.__marks.lift = performance.now()
@@ -511,16 +498,73 @@ async function boot() {
     }
     document.querySelectorAll('.fortress__head .h2, .pride__copy .h2, .flight__head .h2, .rivalry__copy .h2, .gate__title').forEach(splitLines)
     document.querySelectorAll('.gate__top, .gate__row').forEach((el) => el.classList.add('gate-extra'))
+    // The finale's title comes letter by letter, and each line of its story
+    // word by word: every text node is wrapped, keeping <em>, <small>, <br>.
+    const wrapText = (root, cls, unit) => {
+      const out = []
+      for (const node of [...root.childNodes]) {
+        if (node.nodeType === 1) {
+          if (node.tagName !== 'SMALL' && node.tagName !== 'BR') out.push(...wrapText(node, cls, unit))
+          continue
+        }
+        if (node.nodeType !== 3 || !node.textContent.trim()) continue
+        const frag = document.createDocumentFragment()
+        for (const part of node.textContent.split(unit === 'word' ? /(\s+)/ : /(\s)|/u).filter(Boolean)) {
+          if (/^\s+$/.test(part)) {
+            frag.appendChild(document.createTextNode(part))
+            continue
+          }
+          const sp = document.createElement('span')
+          sp.className = cls
+          sp.textContent = part
+          frag.appendChild(sp)
+          out.push(sp)
+        }
+        node.replaceWith(frag)
+      }
+      return out
+    }
+    const gateBody = document.querySelector('.gate__body')
+    const titleLines = [...document.querySelectorAll('.gate__title .line__in')].map((ln) => wrapText(ln, 'gch', 'char'))
     scenes.slice(1).forEach((s) => {
-      s.lines = s.el.querySelectorAll('.line__in')
+      // (The finale's title is revealed letter by letter instead.)
+      s.lines = s.el.id === 'gate' ? [] : s.el.querySelectorAll('.line__in')
       s.extras = s.el.querySelectorAll(':scope .scene__sticky > div > .kicker, :scope .scene__sticky > div > .body, :scope .gate-extra')
       gsap.set(s.lines, { yPercent: 130 })
       gsap.set(s.extras, { opacity: 0, y: 18 })
       s.shown = false
     })
+    gsap.set(titleLines.flat(), { opacity: 0 })
+    // The finale's title, letter by letter: each one lands large and soft and
+    // settles into place; a beat between the lines; then a glow runs through
+    // the words and the emblem and the rest come up.
+    const revealTitle = (s, on) => {
+      gsap.killTweensOf([...titleLines.flat(), gateBody, '.gate__title', ...s.extras])
+      if (!on) {
+        gateBody.classList.remove('is-on')
+        gsap.to(titleLines.flat(), { opacity: 0, duration: 0.3 })
+        gsap.to(s.extras, { opacity: 0, y: 18, duration: 0.3 })
+        return
+      }
+      gateBody.classList.add('is-on')
+      const tl = gsap.timeline()
+      let at = 0.15
+      titleLines.forEach((chars) => {
+        tl.fromTo(
+          chars,
+          { opacity: 0, scale: 2.1, yPercent: -22, filter: MOBILE ? 'none' : 'blur(18px)' },
+          { opacity: 1, scale: 1, yPercent: 0, filter: MOBILE ? 'none' : 'blur(0px)', duration: 1.3, stagger: 0.11, ease: 'expo.out' },
+          at,
+        )
+        at += chars.length * 0.11 + 0.45
+      })
+      tl.fromTo('.gate__title', { '--glow': 0 }, { '--glow': 1, duration: 0.45, ease: 'power2.out', yoyo: true, repeat: 1 }, at + 0.35)
+      tl.fromTo(s.extras, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 1, stagger: 0.1, ease: 'power3.out' }, at + 0.5)
+    }
     const reveal = (s, on) => {
       if (on === s.shown) return
       s.shown = on
+      if (s.el.id === 'gate') return revealTitle(s, on)
       if (on) {
         gsap.to(s.lines, { yPercent: 0, duration: 1.2, stagger: 0.09, ease: 'expo.out', overwrite: true })
         gsap.to(s.extras, { opacity: 1, y: 0, duration: 1, stagger: 0.08, delay: 0.25, ease: 'power3.out', overwrite: true })
@@ -822,6 +866,8 @@ async function boot() {
       for (const c of cand) {
         if (placed.length - reserved.length >= max) break
         const w = tagEls[c.i].offsetWidth || 80
+        // Kept whole on screen: a hall near the edge gets its tag nudged in.
+        c.sc.x = Math.min(innerWidth - w / 2 - 6, Math.max(w / 2 + 6, c.sc.x))
         if (placed.some((p) => Math.abs(p.x - c.sc.x) < (p.w + w) / 2 + 4 && Math.abs(p.y - c.sc.y) < 24)) continue
         if (keepOut.some(([l, t, r, b]) => c.sc.x + w / 2 > l && c.sc.x - w / 2 < r && c.sc.y > t && c.sc.y - 24 < b)) continue
         placed.push({ x: c.sc.x, y: c.sc.y, w })
@@ -1023,7 +1069,7 @@ async function boot() {
     })
     document.getElementById('vsClose').addEventListener('click', () => ((vs.hidden = true), lenis.start()))
 
-    const storyLines = [...document.querySelectorAll('#gateStory li')]
+    const storyLines = [...document.querySelectorAll('#gateStory li')].map((li) => ({ li, small: li.querySelector('small'), words: wrapText(li, 'sw', 'word') }))
 
     /* 고연전: the five results come up one by one, then the title. */
     const GAMES = [
@@ -1094,21 +1140,31 @@ async function boot() {
       fortress.progress = progress(scenes[1].el)
       const fp = progress(scenes[3].el)
       flight.progress = fp
-      flightHead.style.opacity = 1 - clamp01((fp - 0.06) / 0.04)
+      flightHead.style.opacity = 1 - clamp01((fp - 0.085) / 0.04)
       fields.progress = progress(scenes[4].el)
       if (scenes[4].on) showField()
       // The finale: the letter over the first half, the story over the second.
       const gp = progress(document.getElementById('gate'))
       gate.progress = clamp01(gp / 0.45)
       gate.story = clamp01((gp - 0.45) / 0.55)
-      storyLines.forEach((li, i) => {
-        const at = (gate.story - 0.04) / 0.8 * storyLines.length - i
-        const k = clamp01(1 - Math.abs(at - 0.5) * 2.2)
-        li.style.opacity = ease(k).toFixed(3)
-        // Fade and rise only: an animated blur on text this large repaints
-        // it every frame and stutters.
-        li.style.transform = `translate3d(0, ${((1 - ease(k)) * (at < 0.5 ? 24 : -24)).toFixed(1)}px, 0)`
-      })
+      // Each line of the story arrives word by word, holds, then lifts away
+      // whole. (Opacity and transform only: an animated blur on text this
+      // large repaints it every frame and stutters.)
+      if (scenes.at(-1).on)
+        storyLines.forEach(({ li, small, words }, i) => {
+          const at = ((gate.story - 0.04) / 0.8) * storyLines.length - i
+          const inP = clamp01((at - 0.04) / 0.42)
+          const out = ease(clamp01((at - 0.62) / 0.32))
+          li.style.opacity = at > 0 && at < 1 ? (1 - out).toFixed(3) : '0'
+          li.style.transform = `translate3d(0, ${(-out * 24).toFixed(1)}px, 0)`
+          if (small) small.style.opacity = ease(clamp01(inP * 3)).toFixed(3)
+          const n = words.length
+          words.forEach((w, j) => {
+            const k = ease(clamp01(inP * (n + 1.2) - j))
+            w.style.opacity = k.toFixed(3)
+            w.style.transform = `translate3d(0, ${((1 - k) * 0.45).toFixed(3)}em, 0) scale(${(1.14 - 0.14 * k).toFixed(3)})`
+          })
+        })
       updateRivalry()
       updateSymbols()
       // Once dawn floods in, the finale's text turns to ink.

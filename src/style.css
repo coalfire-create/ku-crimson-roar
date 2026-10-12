@@ -66,54 +66,26 @@ button {
 }
 
 /* ---------- loader ---------- */
+/* The same opening as the sister sites: the school's name in hanja, a count and a bar. */
 .loader {
   position: fixed;
   inset: 0;
   z-index: 100;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: var(--gutter);
-  background: radial-gradient(60% 50% at 50% 45%, #2a0a10, #0d0508 70%);
-  color: #f4eee6;
+  background: #f4eee6;
+  color: #1a0508;
   clip-path: inset(0 0 0 0);
 }
-.loader__center {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 26px;
-}
-.loader__crest {
-  position: relative;
-  height: min(34vh, 260px);
-  aspect-ratio: 593 / 797;
-}
-.loader__crest img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.loader__crest-dim {
-  filter: saturate(0.25) brightness(0.3);
-  opacity: 0.6;
-}
-.loader__crest-fill {
-  clip-path: inset(100% 0 0 0);
-  filter: drop-shadow(0 0 24px rgba(255, 60, 50, 0.55));
-}
-.loader__line {
-  min-height: 1.6em;
+.loader__glyph {
   font-family: 'Noto Serif KR', serif;
-  font-size: clamp(15px, 1.4vw, 19px);
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: rgba(244, 238, 230, 0.85);
-  transition: opacity 0.4s;
+  font-weight: 900;
+  font-size: clamp(120px, 26vw, 420px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--blood);
 }
 .loader__foot {
   display: flex;
@@ -121,12 +93,11 @@ button {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.3em;
-  color: rgba(244, 238, 230, 0.7);
 }
 .loader__bar {
   margin-top: 16px;
   height: 2px;
-  background: rgba(244, 238, 230, 0.12);
+  background: rgba(26, 5, 8, 0.12);
 }
 .loader__bar span {
   display: block;
@@ -490,7 +461,9 @@ button {
 
 /* ---------- campus flight ---------- */
 .flight {
-  height: 640vh;
+  /* The campus film: a long look at the whole campus from above, then a
+     generous stretch of scroll on every landmark. */
+  height: 1000vh;
 }
 .flight__head {
   position: absolute;
@@ -1337,6 +1310,42 @@ button.pill:not([class*='pill--']) {
   padding-bottom: 0.14em;
   margin-bottom: -0.1em;
 }
+/* Letters of the finale's title land one by one (see revealTitle in main.js),
+   and a glow runs through them once the line is whole. */
+.gate__title {
+  --glow: 0;
+}
+.gate__title .line {
+  overflow: visible;
+}
+.gate__title .gch {
+  display: inline-block;
+  transform-origin: 50% 70%;
+  will-change: transform, opacity, filter;
+  text-shadow: 0 6px 60px rgba(120, 10, 20, 0.45), 0 0 calc(var(--glow) * 46px) rgba(255, 110, 80, calc(var(--glow) * 0.9));
+}
+/* A dark pool behind the title, so the letters stand clear of the crowd's lights. */
+.gate__body::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: calc(var(--gutter) * -1);
+  right: -10%;
+  bottom: -64px;
+  height: 170%;
+  background: radial-gradient(ellipse 70% 70% at 22% 72%, rgba(12, 3, 6, 0.78), rgba(12, 3, 6, 0.35) 55%, transparent 80%);
+  opacity: 0;
+  transition: opacity 1.4s ease;
+  pointer-events: none;
+}
+.gate__body.is-on::before {
+  opacity: 1;
+}
+.gate__story .sw {
+  display: inline-block;
+  opacity: 0;
+  will-change: transform, opacity;
+}
 .gate__title em {
   font-style: italic;
   color: #fff3d6;
@@ -1387,7 +1396,8 @@ button.pill:not([class*='pill--']) {
 }
 @media (max-width: 760px) {
   .gate__row { flex-direction: column; align-items: flex-start; }
-  .gate__body { bottom: 72px; }
+  /* Clear of the credits, which wrap to four lines on a phone. */
+  .gate__body { bottom: 112px; }
   .gate__top .eyebrow:last-child { display: none; }
 }
 
@@ -1603,6 +1613,13 @@ button.pill:not([class*='pill--']) {
   max-width: 340px;
   margin-top: 14px;
 }
+@media (max-width: 760px) {
+  /* Phones: the stage's LED banner sits where this paragraph would; the
+     headline and the tap hint say enough. */
+  .pride__lede {
+    display: none;
+  }
+}
 /* Spotlights from the stage floor, sweeping; brighter as the crowd's energy rises. */
 .beams {
   --e: 0;
@@ -1706,6 +1723,12 @@ button.pill:not([class*='pill--']) {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   pointer-events: none;
+  /* Never taller than the screen: on a short (16:9) window the rows and the
+     video card give way, so the card is never cut off at the bottom edge. */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 130px);
+  max-height: calc(100svh - 130px);
 }
 .lineup__title {
   font-family: var(--grotesk);
@@ -1723,7 +1746,7 @@ button.pill:not([class*='pill--']) {
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  padding: 7px 0;
+  padding: clamp(3px, 0.75vh, 7px) 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.55);
   white-space: nowrap;
@@ -2112,6 +2135,28 @@ button.pill:not([class*='pill--']) {
 }
 .intro__dots li.is-past { background: rgba(255, 255, 255, 0.5); }
 .intro__dots li.is-on { width: 28px; background: var(--sky); }
+/* The campus film's lower third stays compact so the hall itself fills the
+   shot: name and a short line here, the full story behind '자세히 보기'. */
+.flight .intro {
+  bottom: 84px;
+  width: min(360px, calc(100% - 32px));
+  padding: 14px 18px 16px;
+}
+.flight .intro__name {
+  font-size: 26px;
+}
+.flight .intro__body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.flight .intro__rows,
+.flight .intro__facts {
+  display: none;
+}
 .flight .intro__kind {
   display: block;
   font-family: var(--sans);
@@ -2493,14 +2538,23 @@ button.pill:not([class*='pill--']) {
   pointer-events: none;
 }
 
-/* Desktop: the video card inside the lineup panel, under the list. */
+/* Desktop: the video card inside the lineup panel, under the list. Its
+   height follows the window's, so the whole card always shows. */
 .lineup .stage-screen {
   position: relative;
   left: auto;
   top: auto;
+  flex: none;
   width: 100%;
-  margin-top: 14px;
+  height: clamp(64px, 18vh, 122px);
+  aspect-ratio: auto;
+  margin-top: clamp(8px, 1.6vh, 14px);
   pointer-events: auto;
+}
+@media (max-height: 640px) {
+  .lineup__note {
+    display: none;
+  }
 }
 
 /* Sound toggle: a speaker, its waves only while the ambience plays. */
